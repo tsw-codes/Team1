@@ -11,6 +11,7 @@ import ChangePasswordPage from './components/ChangePasswordPage'
 import InventoryPage from './components/InventoryPage'
 import ReceiveInventoryPage from './components/ReceiveInventoryPage'
 import RequestMaterialPage from './components/RequestMaterialPage'
+import ManifestInventoryPage from './components/ManifestInventoryPage'
 
 import { mockUsers } from './auth/mockUsers'
 import { getPermissionsForRole } from './auth/permissions'
@@ -180,7 +181,7 @@ function App() {
       return
     }
 
-    if (currentPassword !== mockPassword) {
+    if (currentPassword !== currentUser.password) {
       setChangePasswordSuccess('')
       setChangePasswordError('Current password is incorrect.')
       return
@@ -358,6 +359,22 @@ function App() {
                   isLoggedIn ? (
                     <PageTransition direction={navDirection}>
                       <RequestMaterialPage 
+                        onBack={handleGoHome}
+                        currentUser={currentUser}
+                      />
+                    </PageTransition>
+                  ) : (
+                    <Navigate to='/login' replace />
+                  )
+                }
+              />
+
+              <Route 
+                path='/manifest-inventory'
+                element={
+                  isLoggedIn ? (
+                    <PageTransition direction={navDirection}>
+                      <ManifestInventoryPage 
                         onBack={handleGoHome}
                         currentUser={currentUser}
                       />

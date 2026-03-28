@@ -29,6 +29,14 @@ function HomePage({ name, permissions, onOpenInventory, onOpenPage }) {
             permission: 'receive_inventory',
         },
         {
+            key: 'manifest_inventory',
+            title: 'Manifest Inventory',
+            description: 'Build a manifest from a pending request.',
+            icon: '📋',
+            path: '/manifest-inventory',
+            permission: 'manifest_inventory',
+        },
+        {
             key: 'admin_tools',
             title: 'Admin Tools',
             description: 'Manage users and settings.',

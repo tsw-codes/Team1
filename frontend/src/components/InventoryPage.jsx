@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
+import { formatCurrency } from "../utils/formatters"
 
 import { mockInventory } from "../data/mockInventory"
 
@@ -13,6 +14,8 @@ function getStatusClass(status) {
             return "status-badge available"
         case "Low Stock":
             return "status-badge low-stock"
+        case "Out of Stock":
+            return "status-badge out-of-stock"
         case "Reserved":
             return "status-badge reserved"
         case "In Transit":
@@ -27,8 +30,7 @@ function InventoryModal({
     onClose,
     canViewMaterialCost,
     canAdjustInventory,
-    canTransferInventory,
-    canCreateShipment,
+    onAdjustInventory,
 }) {
     if (!item) return null
 
@@ -46,7 +48,7 @@ function InventoryModal({
 
                 <div className="inventory-card-details detail-panel-grid">
                     <div>
-                        <span className="detail-label">Quantity</span>
+                        <span className="detail-label">Quantity: </span>
                         <span className="detail-value">{item.quantity} {item.unit}</span>
                     </div>
 
@@ -54,50 +56,42 @@ function InventoryModal({
                         <>
                             <div className="detail-row">
                                 <span className="detail-label">Unit Cost: </span>
-                                <span className="detail-value">{item.unitCost} / {item.unit}</span>
+                                <span className="detail-value">{formatCurrency(item.unitCost)} / {item.unit}</span>
                             </div>
 
                             <div className="detail-row">
                                 <span className="detail-label">Total Cost: </span>
-                                <span className="detail-value">{item.totalCost}</span>
+                                <span className="detail-value">{formatCurrency(item.totalCost)}</span>
                             </div>
                         </>
                     )}
 
                     <div>
-                        <span className="detail-label">Category</span>
+                        <span className="detail-label">Category: </span>
                         <span className="detail-value">{item.category}</span>
                     </div>
 
                     <div>
-                        <span className="detail-label">Project</span>
+                        <span className="detail-label">Project: </span>
                         <span className="detail-value">{item.project}</span>
                     </div>
 
                     <div>
-                        <span className="detail-label">Updated</span>
+                        <span className="detail-label">Updated: </span>
                         <span className="detail-value">{item.updatedAt}</span>
                     </div>
 
                 </div>
 
                 <div className="inventory-location-block">
-                    <span className="detail-label">Location</span>
+                    <span className="detail-label">Location: </span>
                     <span className="detail-value">{item.location}</span>
                 </div>
 
-                {(canAdjustInventory || canTransferInventory || canCreateShipment) && (
+                {canAdjustInventory && (
                     <div className="detail-actions">
                         {canAdjustInventory && (
-                            <button className="primary-button">Adjust Inventory</button>
-                        )}
-
-                        {canTransferInventory && (
-                            <button className="secondary-button">Transfer Inventory</button>
-                        )}
-                        
-                        {canCreateShipment && (
-                            <button className="secondary-button">Create Shipment</button>
+                            <button className="primary-button" onClick={onAdjustInventory}>Adjust Inventory</button>
                         )}
                     </div>
                 )} 
@@ -115,8 +109,6 @@ function InventoryPage({ permissions = [], onBack }) {
 
     const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
     const canAdjustInventory = hasPermission(permissions, "adjust_inventory")
-    const canTransferInventory = hasPermission(permissions, "transfer_inventory")
-    const canCreateShipment = hasPermission(permissions, "create_shipment")
 
     const projects = ["All", ...new Set(inventoryData.map((item) => item.project))]
     const categories = ["All", ...new Set(inventoryData.map((item) => item.category))]
@@ -144,10 +136,15 @@ function InventoryPage({ permissions = [], onBack }) {
         return {
             totalItems: inventoryData.length,
             lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
+            outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
             inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
             updatedToday: inventoryData.filter((item) => item.updatedAt === "Mar 24, 2026").length,
         }
     }, [])
+
+    function handleAdjustInventory(){
+        alert("Adjust Inventory not implemented yet.")
+    }
 
     return (
         <div className="inventory-page">
@@ -190,8 +187,8 @@ function InventoryPage({ permissions = [], onBack }) {
 
                     <div className="summary-card">
                         <div className="summary-row">
-                            <span className="summary-label">Updated Today: </span>
-                            <span className="summary-value">{summary.updatedToday}</span>
+                            <span className="summary-label">Out of Stock</span>
+                            <span className="summary-value">{summary.outOfStock}</span>
                         </div>
                     </div>
                 </section>
@@ -278,12 +275,14 @@ function InventoryPage({ permissions = [], onBack }) {
                                         <span className="detail-value">{item.location}</span>
                                     </div>
 
-                                    <button
-                                        className="secondary-button"
-                                        onClick={() => setSelectedItem(item)}
-                                    >
-                                        View Details
-                                    </button>
+                                    <div className="inventory-card-button">
+                                        <button
+                                            className="secondary-button"
+                                            onClick={() => setSelectedItem(item)}
+                                        >
+                                            View Details
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -308,7 +307,7 @@ function InventoryPage({ permissions = [], onBack }) {
 
                                 <div className="inventory-card-details detail-panel-grid">
                                     <div>
-                                        <span className="detail-label">Quantity</span>
+                                        <span className="detail-label">Quantity: </span>
                                         <span className="detail-value">{selectedItem.quantity} {selectedItem.unit}</span>
                                     </div>
 
@@ -316,49 +315,43 @@ function InventoryPage({ permissions = [], onBack }) {
                                             <>
                                                 <div className="detail-row">
                                                     <span className="detail-label">Unit Cost: </span>
-                                                    <span className="detail-value">{selectedItem.unitCost} / {selectedItem.unit}</span>
+                                                    <span className="detail-value">{formatCurrency(selectedItem.unitCost)} / {selectedItem.unit}</span>
                                                 </div>
 
                                                 <div className="detail-row">
                                                     <span className="detail-label">Total Cost: </span>
-                                                    <span className="detail-value">{selectedItem.totalCost}</span>
+                                                    <span className="detail-value">{formatCurrency(selectedItem.totalCost)}</span>
                                                 </div>
                                             </>
                                         )}
 
                                     <div>
-                                        <span className="detail-label">Category</span>
+                                        <span className="detail-label">Category: </span>
                                         <span className="detail-value">{selectedItem.category}</span>
                                     </div>
 
                                     <div>
-                                        <span className="detail-label">Project</span>
+                                        <span className="detail-label">Project: </span>
                                         <span className="detail-value">{selectedItem.project}</span>
                                     </div>
 
                                     <div>
-                                        <span className="detail-label">Updated</span>
+                                        <span className="detail-label">Updated: </span>
                                         <span className="detail-value">{selectedItem.updatedAt}</span>
                                     </div>
                                 </div>
 
                                 <div className="inventory-location-block">
-                                    <span className="detail-label">Location</span>
+                                    <span className="detail-label">Location: </span>
                                     <span className="detail-value">{selectedItem.location}</span>
                                 </div>
 
-                                {(canAdjustInventory || canTransferInventory || canCreateShipment) && (
+                                {canAdjustInventory && (
                                     <div className="detail-actions">
                                         {canAdjustInventory && (
-                                            <button className="primary-button">Adjust Inventory</button>
-                                        )}
-
-                                        {canTransferInventory && (
-                                            <button className="secondary-button">Transfer Inventory</button>
-                                        )}
-                                        
-                                        {canCreateShipment && (
-                                            <button className="secondary-button">Create Shipment</button>
+                                            <button className="primary-button" onClick={() => handleAdjustInventory()}>
+                                                Adjust Inventory
+                                            </button>
                                         )}
                                     </div>
                                 )}   
@@ -377,8 +370,7 @@ function InventoryPage({ permissions = [], onBack }) {
                         onClose={() => setSelectedItem(null)}
                         canViewMaterialCost={canViewMaterialCost}
                         canAdjustInventory={canAdjustInventory}
-                        canTransferInventory={canTransferInventory}
-                        canCreateShipment={canCreateShipment}
+                        onAdjustInventory={handleAdjustInventory}
                     />
                 )}
             </div>

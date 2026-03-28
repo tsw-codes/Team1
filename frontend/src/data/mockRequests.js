@@ -38,7 +38,7 @@ export const mockRequests = [
         items: [
             {
                 id: 1,
-                inventoryItemId: 2,
+                inventoryItemId: 7,
                 requestedQuantity: 12,
             },
             {
