@@ -377,6 +377,7 @@ function App() {
                       <ManifestInventoryPage 
                         onBack={handleGoHome}
                         currentUser={currentUser}
+                        permissions={permissions}
                       />
                     </PageTransition>
                   ) : (
