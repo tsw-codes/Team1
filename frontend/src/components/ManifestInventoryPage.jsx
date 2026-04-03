@@ -1,26 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { 
-    mockInventory,
-    requestableInventory, 
-    warehouseNames,
-    getWarehouseFromLocation,
-} from "../data/mockInventory"
-import {
-  warehouseLocations,
-  jobSiteLocations,
-  getAllowedSourceLocations,
-  getAllowedDestinationLocations,
-} from "../data/mockLocations"
-import { pendingRequests, getRequestById } from "../data/mockRequests"
-import { invariant } from "motion"
+import { getAllowedSourceLocations, getAllowedDestinationLocations } from "../data/mockLocations"
+import { createAuditTimestamp, formatAuditTimestamp } from "../utils/dateUtils"
+import { getPendingRequests, findRequestById } from "../services/requestService"
+import { getAllowedManifestModes, createManifest } from "../services/manifestService"
+import { getRequestableInventory, findRequestableInventoryItemById, getManualSourceInventory } from "../services/inventoryService"
 
 function buildManifestItemsFromRequest(request) {
     if (!request) return []
 
     return request.items.map((requestItem) => {
-        const inventoryItem = requestableInventory.find(
-            (item) => item.id === requestItem.inventoryItemId
-        )
+        const inventoryItem = findRequestableInventoryItemById(requestItem.inventoryItemId)
 
         return {
             id: `${request.id}-${requestItem.id}`,
@@ -40,25 +29,20 @@ function createEmptyManualManifestItem() {
 
 function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     const lineRefs = useRef({})
+    const manifestRefs = useRef({})
+
+    const pendingRequestOptions = useMemo(() => {
+        return getPendingRequests()
+    }, [])
+
+    const requestableInventoryItems = useMemo(() => {
+        return getRequestableInventory()
+    }, [])
 
     const previousManifestMode = useRef("")
 
     const allowedManifestModes = useMemo(() => {
-        const modes = []
-
-        if (permissions.includes("create_outbound_manifest")) {
-            modes.push("outbound")
-        }
-
-        if (permissions.includes("create_return_manifest")) {
-            modes.push("return")
-        }
-
-        if (permissions.includes("create_warehouse_transfer_manifest")) {
-            modes.push("warehouse_transfer")
-        }
-
-        return modes
+        return getAllowedManifestModes(permissions)
     }, [permissions])
 
     const [manifestMode, setManifestMode] = useState("")
@@ -71,17 +55,22 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const [manifestForm, setManifestForm] = useState({
         createdBy: currentUser?.username || "",
+        createdAt: createAuditTimestamp(),
+
         requestId: "",
         manifestDate: "",
         sourceLocation: "",
         destinationLocation: "",
         notes: "",
+        
+        finalizedBy: "",
+        finalizedAt: "",
     })
 
     const [editableManifestItems, setEditableManifestItems] = useState([])
 
     const selectedRequest = useMemo(() => {
-        return getRequestById(manifestForm.requestId)
+        return findRequestById(manifestForm.requestId)
     }, [manifestForm.requestId])
 
     useEffect(() => {
@@ -98,11 +87,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             return
         }
 
-        setEditableManifestItems([])
-        setManualSourceInventory([])
-        setItemErrors({})
-        setManifestErrors({})
-        setFormError("")
+        resetManifestState()
 
         setManifestForm((prev) => ({
             ...prev,
@@ -115,20 +100,12 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         previousManifestMode.current = manifestMode
     }, [manifestMode])
 
-    function getManualSourceInventory(sourceLocation) {
-        if (!sourceLocation) return []
-
-        if (manifestMode === "return") {
-            return mockInventory.filter((item) => item.location.startsWith(sourceLocation))
-        }
-
-        if (manifestMode === "warehouse_transfer") {
-            return requestableInventory.filter(
-                (item) => getWarehouseFromLocation(item.location) === sourceLocation
-            )
-        }
-
-        return []
+    function resetManifestState() {
+        setEditableManifestItems([])
+        setManualSourceInventory([])
+        setItemErrors({})
+        setManifestErrors({})
+        setFormError("")
     }
 
     function handleManifestChange(e) {
@@ -141,26 +118,27 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             }
 
             if (name === "requestId" && manifestMode === "outbound") {
-                const request = getRequestById(value)
+                resetManifestState()
+
+                const request = findRequestById(value)
 
                 next.sourceLocation = request ? "Warehouse Stock" : ""
                 next.destinationLocation = request?.deliveryLocation || ""
-                next.notes = request?.notes
+                next.notes = request?.notes || ""
 
                 setEditableManifestItems(buildManifestItemsFromRequest(request))
-                setItemErrors({})
             }
 
             if (name === "sourceLocation" && manifestMode !== "outbound") {
-                const inventory = getManualSourceInventory(value)
+                resetManifestState()
+
+                const inventory = getManualSourceInventory(manifestMode, value)
 
                 if (value === manifestForm.destinationLocation) {
                     next.destinationLocation = ""
                 }
 
                 setManualSourceInventory(inventory)
-                setEditableManifestItems([])
-                setItemErrors({})
             }
 
             return next
@@ -188,11 +166,18 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                         (inventoryItem) => String(inventoryItem.id) === String(value)
                     )
 
-                    const isDuplicate = editableManifestItems.some(
+                    const isDuplicate = prev.some(
                         (existingItem) => existingItem.id !== id && String(existingItem.inventoryItemId) === String(value)
                     )
 
                     if (isDuplicate) {
+                        setItemErrors((prevErrors) => ({
+                            ...prevErrors,
+                            [id]: {
+                                ...prevErrors[id],
+                                inventoryItemId: "This inventory item has already been selected.",
+                            },
+                        }))
                         return item
                     }
 
@@ -236,27 +221,38 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     }
 
     function handleRemoveManualManifestItem(id) {
-        setEditableManifestItems((prev) => {
-            if (prev.length === 1) return prev
-            return prev.filter((item) => item.id !== id)
+        setEditableManifestItems((prev) => 
+            prev.filter((item) => item.id !== id)
+        )
+
+        setItemErrors((prev) => {
+            if (!prev[id]) return prev
+            const next = { ...prev }
+            delete next[id]
+            return next
         })
+
+        delete lineRefs.current[id]
     }
 
     function scrollToFirstError(newManifestErrors, newItemErrors) {
-        if (newManifestErrors.requestId) {
-            document.getElementById("manifest-requestId")?.scrollIntoView({
-                behavior: "smooth",
-                block: "center",
-            })
-            return
-        }
+        const manifestErrorOrder = [
+            "manifestMode",
+            "requestId",
+            "manifestDate",
+            "sourceLocation",
+            "destinationLocation",
+        ]
 
-        if (newManifestErrors.manifestDate) {
-            document.getElementById("manifest-manifestDate")?.scrollIntoView({
-                behavior: "smooth",
-                block: "center",
-            })
-            return
+        for (const field of manifestErrorOrder) {
+            if (newManifestErrors[field]) {
+                manifestRefs.current[field]?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                })
+                manifestRefs.current[field]?.focus?.()
+                return
+            }
         }
 
         const firstItemId = Object.keys(newItemErrors)[0]
@@ -321,7 +317,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
             const inventoryItem = 
                 manifestMode === "outbound"
-                    ? requestableInventory.find((item) => item.id === manifestItem.inventoryItemId)
+                    ? requestableInventoryItems.find((item) => item.id === manifestItem.inventoryItemId)
                     : manualSourceInventory.find(
                         (item) => String(item.id) === String(manifestItem.inventoryItemId)
                     )
@@ -405,12 +401,89 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         const isValid = validateManifestForm()
         if(!isValid) return
 
-        alert("Finalize Manifest not yet implemented.")
+        const finalizedAt = createAuditTimestamp()
+        const finalizedBy = currentUser?.username || "unknown"
+
+        const newManifest = {
+            manifestType: manifestMode,
+            status: "finalized",
+
+            requestId: manifestForm.requestId,
+            createdBy: manifestForm.createdBy,
+            createdAt: manifestForm.createdAt,
+
+            manifestDate: manifestForm.manifestDate,
+
+            finalizedBy,
+            finalizedAt,
+
+            sourceLocation: manifestForm.sourceLocation,
+            destinationLocation: manifestForm.destinationLocation,
+
+            notes: manifestForm.notes,
+
+            items: editableManifestItems.map((item) => {
+                const inventoryItem = manifestMode === "outbound"
+                    ? requestableInventoryItems.find((inventory) => inventory.id === item.inventoryItemId)
+                    : manualSourceInventory.find((inventory) => String(inventory.id) === String(item.inventoryItemId))
+
+                return {
+                    id: item.id,
+                    inventoryItemId: item.inventoryItemId,
+                    name: inventoryItem?.name || "",
+                    sku: inventoryItem?.sku || "",
+                    unit: inventoryItem?.unit || "",
+                    manifestQuantity: item.manifestQuantity,
+                }
+            }),
+        }
+
+        const createdManifest = createManifest(newManifest)
+
+        setManifestForm((prev) => ({
+            ...prev,
+            finalizedBy: createdManifest.finalizedBy,
+            finalizedAt: createdManifest.finalizedAt,
+        }))
+
+        alert(`Manifest ${createdManifest.id} finalized.`)
     }
 
     function getRequestedQuantity(inventoryItemId) {
         return (
             selectedRequest?.items.find((item) => item.inventoryItemId === inventoryItemId)?.requestedQuantity ?? 0
+        )
+    }
+
+    if (allowedManifestModes.length === 0) {
+        return (
+            <div className="manifest-page">
+                <div className="manifest-page-scroll">
+                    <section className="page-section manifest-header">
+                        <div className="manifest-header-bar">
+                            <button
+                                className="text-button back-button"
+                                type="button"
+                                onClick={onBack}
+                            >
+                                ← Home
+                            </button>
+
+                            <h1 className="page-title manifest-title">Manifest Inventory</h1>
+                        </div>
+
+                        <p className="page-subtitle">
+                            Build a manifest from a request, confirm available quantities, and prepare inventory for transfer.
+                        </p>
+                    </section>
+
+                    <section className="page-section manifest-form-section">
+                        <div className="manifest-empty-state">
+                            No manifest options are currently available for your role.
+                        </div>
+                    </section>
+                </div>
+            </div>
         )
     }
 
@@ -445,6 +518,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <label className="form-group">
                                 <span className="form-label">Manifest Type</span>
                                 <select
+                                    ref={(el) => (manifestRefs.current.manifestMode = el)}
                                     className={`form-input ${manifestErrors.manifestMode ? "input-error" : ""}`}
                                     value={manifestMode}
                                     onChange={(e) => setManifestMode(e.target.value)}
@@ -457,7 +531,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                         <option value="return">Return to Warehouse</option>
                                     )}
                                     {allowedManifestModes.includes("warehouse_transfer") && (
-                                        <option value="warehouse_transfer">Warhouse to Warehouse</option>
+                                        <option value="warehouse_transfer">Warehouse to Warehouse</option>
                                     )}
                                 </select>
                                 {manifestErrors.manifestMode && (
@@ -482,6 +556,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                 <label className="form-group">
                                     <span className="form-label">Request</span>
                                     <select
+                                        ref={(el) => (manifestRefs.current.requestId = el)}
                                         id="manifest-requestId"
                                         className={`form-input ${manifestErrors.requestId ? "input-error": ""}`}
                                         name="requestId"
@@ -489,7 +564,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                         onChange={handleManifestChange}
                                     >
                                         <option value="">Select request</option>
-                                        {pendingRequests.map((request) => (
+                                        {pendingRequestOptions.map((request) => (
                                             <option key={request.id} value={request.id}>
                                                 {request.id} - {request.project} ({request.priority})
                                             </option>
@@ -504,6 +579,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <label className="form-group">
                                 <span className="form-label">Manifest Date</span>
                                 <input
+                                    ref={(el) => (manifestRefs.current.manifestDate = el)}
                                     id="manifest-manifestDate"
                                     className={`form-input ${manifestErrors.manifestDate ? "input-error": ""}`}
                                     type="date"
@@ -516,11 +592,32 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                 )}
                             </label>
 
+                            <label className="form-group">
+                                <span className="form-label">Finalized By</span>
+                                <input
+                                    className="form-input read-only-input"
+                                    type="text"
+                                    value={manifestForm.finalizedBy || ""}
+                                    readOnly
+                                />
+                            </label>
+
+                            <label className="form-group">
+                                <span className="form-label">Finalized At</span>
+                                <input
+                                    className="form-input read-only-input"
+                                    type="text"
+                                    value={formatAuditTimestamp(manifestForm.finalizedAt)}
+                                    readOnly
+                                />
+                            </label>
+
                             {manifestMode === "outbound" ? (
                                 <>
                                     <label className="form-group">
                                         <span className="form-label">Source Location</span>
                                         <input 
+                                            ref={(el) => (manifestRefs.current.sourceLocation = el)}
                                             className="form-input read-only-input"
                                             type="text"
                                             name="sourceLocation"
@@ -532,6 +629,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     <label className="form-group receive-form-span-2">
                                         <span className="form-label">Destination Location</span>
                                         <input 
+                                            ref={(el) => (manifestRefs.current.destinationLocation = el)}
                                             className="form-input read-only-input"
                                             type="text"
                                             name="destinationLocation"
@@ -545,6 +643,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                    <label className="form-group">
                                         <span className="form-label">Source Location</span>
                                         <select 
+                                            ref={(el) => (manifestRefs.current.sourceLocation = el)}
                                             className={`form-input ${manifestErrors.sourceLocation ? "input-error" : ""}`}
                                             name="sourceLocation"
                                             value={manifestForm.sourceLocation}
@@ -565,6 +664,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     <label className="form-group receive-form-span-2">
                                         <span className="form-label">Destination Location</span>
                                         <select
+                                            ref={(el) => (manifestRefs.current.destinationLocation = el)}
                                             className={`form-input ${manifestErrors.destinationLocation ? "input-error" : ""}`}
                                             name="destinationLocation"
                                             value={manifestForm.destinationLocation}
@@ -597,7 +697,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                             selectedRequest ? (
                                 <div className="received-items-list">
                                     {editableManifestItems.map((manifestItem, index) => {
-                                        const inventoryItem = requestableInventory.find(
+                                        const inventoryItem = requestableInventoryItems.find(
                                             (item) => item.id === manifestItem.inventoryItemId
                                         )
 
@@ -823,6 +923,11 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                 })}
 
                                 <div className="receive-add-item">
+                                    {editableManifestItems.length === 0 && (
+                                        <div className="empty-state-message">
+                                            No items added yet. Select a manual manifest type and source location, then click Add Item.
+                                        </div>
+                                    )}
                                     <button
                                         className="secondary-button"
                                         type="button"

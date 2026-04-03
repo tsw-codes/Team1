@@ -1,12 +1,7 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
-
-import { mockInventory } from "../data/mockInventory"
-
-const isMobile = window.innerWidth <= 900
-
-const inventoryData = mockInventory
+import { getInventoryItems, getInventoryFilterOptions, getInventorySummary } from "../services/inventoryService"
 
 function getStatusClass(status) {
     switch (status) {
@@ -25,6 +20,83 @@ function getStatusClass(status) {
     }
 }
 
+function InventoryDetailContent({
+    item,
+    onClose,
+    showClose = false,
+    canViewMaterialCost,
+    canAdjustInventory,
+    onAdjustInventory,
+}) {
+    if (!item) return null
+
+    return (
+        <>
+            <div className="section-heading-row">
+                <h2 className="section-title">Item Details</h2>
+                {showClose && (
+                    <button className="text-button" onClick={onClose}>Close</button>
+                )}
+            </div>
+
+            <h3 className="inventory-item-title">{item.name}</h3>
+            <p className="inventory-item-subtext">SKU: {item.sku}</p>
+            <span className={getStatusClass(item.status)}>{item.status}</span>
+
+            <div className="inventory-card-details detail-panel-grid">
+                <div>
+                    <span className="detail-label">Quantity: </span>
+                    <span className="detail-value">{item.quantity} {item.unit}</span>
+                </div>
+
+                {canViewMaterialCost && (
+                    <>
+                        <div className="detail-row">
+                            <span className="detail-label">Unit Cost: </span>
+                            <span className="detail-value">
+                                {formatCurrency(item.unitCost)} / {item.unit}
+                            </span>
+                        </div>
+
+                        <div className="detail-row">
+                            <span className="detail-label">Total Cost: </span>
+                            <span className="detail-value">{formatCurrency(item.totalCost)}</span>
+                        </div>
+                    </>
+                )}
+
+                <div>
+                    <span className="detail-label">Category: </span>
+                    <span className="detail-value">{item.category}</span>
+                </div>
+
+                <div>
+                    <span className="detail-label">Project: </span>
+                    <span className="detail-value">{item.project}</span>
+                </div>
+
+                <div>
+                    <span className="detail-label">Updated: </span>
+                    <span className="detail-value">{item.updatedAt}</span>
+                </div>
+
+                <div className="inventory-location-block">
+                    <span className="detail-label">Location: </span>
+                    <span className="detail-value">{item.location}</span>
+                </div>
+            </div>
+
+            {canAdjustInventory && (
+                <div className="detail-actions">
+                    <button className="primary-button" onClick={onAdjustInventory}>
+                        Adjust Inventory
+                    </button>
+                </div>
+            )}
+        </>
+    )
+}
+
 function InventoryModal({
     item,
     onClose,
@@ -37,70 +109,22 @@ function InventoryModal({
     return (
         <div className="inventory-modal-overlay" onClick={onClose}>
             <div className="inventory-modal-card" onClick={(e) => e.stopPropagation()}>
-                <div className="section-heading-row">
-                    <h2 className="section-title">Item Details</h2>
-                    <button className="text-button" onClick={onClose}>Close</button>
-                </div>
-
-                <h3 className="inventory-item-title">{item.name}</h3>
-                <p className="inventory-item-subtext">SKU: {item.sku}</p>
-                <span className={getStatusClass(item.status)}>{item.status}</span>
-
-                <div className="inventory-card-details detail-panel-grid">
-                    <div>
-                        <span className="detail-label">Quantity: </span>
-                        <span className="detail-value">{item.quantity} {item.unit}</span>
-                    </div>
-
-                    {canViewMaterialCost && (
-                        <>
-                            <div className="detail-row">
-                                <span className="detail-label">Unit Cost: </span>
-                                <span className="detail-value">{formatCurrency(item.unitCost)} / {item.unit}</span>
-                            </div>
-
-                            <div className="detail-row">
-                                <span className="detail-label">Total Cost: </span>
-                                <span className="detail-value">{formatCurrency(item.totalCost)}</span>
-                            </div>
-                        </>
-                    )}
-
-                    <div>
-                        <span className="detail-label">Category: </span>
-                        <span className="detail-value">{item.category}</span>
-                    </div>
-
-                    <div>
-                        <span className="detail-label">Project: </span>
-                        <span className="detail-value">{item.project}</span>
-                    </div>
-
-                    <div>
-                        <span className="detail-label">Updated: </span>
-                        <span className="detail-value">{item.updatedAt}</span>
-                    </div>
-
-                </div>
-
-                <div className="inventory-location-block">
-                    <span className="detail-label">Location: </span>
-                    <span className="detail-value">{item.location}</span>
-                </div>
-
-                {canAdjustInventory && (
-                    <div className="detail-actions">
-                        {canAdjustInventory && (
-                            <button className="primary-button" onClick={onAdjustInventory}>Adjust Inventory</button>
-                        )}
-                    </div>
-                )} 
+                <InventoryDetailContent 
+                    item={item}
+                    onClose={onClose}
+                    showClose={true}
+                    canViewMaterialCost={canViewMaterialCost}
+                    canAdjustInventory={canAdjustInventory}
+                    onAdjustInventory={onAdjustInventory}
+                />
             </div>
         </div>
     )
 }
 
 function InventoryPage({ permissions = [], onBack }) {
+    const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
+
     const [searchTerm, setSearchTerm] = useState("")
     const [projectFilter, setProjectFilter] = useState("All")
     const [categoryFilter, setCategoryFilter] = useState("All")
@@ -110,9 +134,11 @@ function InventoryPage({ permissions = [], onBack }) {
     const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
     const canAdjustInventory = hasPermission(permissions, "adjust_inventory")
 
-    const projects = ["All", ...new Set(inventoryData.map((item) => item.project))]
-    const categories = ["All", ...new Set(inventoryData.map((item) => item.category))]
-    const statuses = ["All", ...new Set(inventoryData.map((item) => item.status))]
+    const inventoryData = useMemo(() => {return getInventoryItems()}, [])
+    const filterOptions = useMemo(() => {return getInventoryFilterOptions()}, [])
+    const summary = useMemo(() => {return getInventorySummary()}, [])
+
+    const { projects, categories, statuses } = filterOptions
 
     const filteredItems = useMemo(() => {
         return inventoryData.filter((item) => {
@@ -130,16 +156,16 @@ function InventoryPage({ permissions = [], onBack }) {
 
             return matchesSearch && matchesProject && matchesCategory && matchesStatus
         })
-    }, [searchTerm, projectFilter, categoryFilter, statusFilter])
+    }, [inventoryData, searchTerm, projectFilter, categoryFilter, statusFilter])
 
-    const summary = useMemo(() => {
-        return {
-            totalItems: inventoryData.length,
-            lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
-            outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
-            inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
-            updatedToday: inventoryData.filter((item) => item.updatedAt === "Mar 24, 2026").length,
+    useEffect(() => {
+        function handleResize() {
+            setIsMobile(window.innerWidth <= 900)
         }
+
+        window.addEventListener("resize", handleResize)
+
+        return () => window.removeEventListener("resize", handleResize)
     }, [])
 
     function handleAdjustInventory(){
@@ -290,72 +316,14 @@ function InventoryPage({ permissions = [], onBack }) {
 
                     <aside className="inventory-detail-panel">
                         {selectedItem ? (
-                            <>
-                                <div className="section-heading-row">
-                                    <h2 className="section-title">Item Details</h2>
-                                    <button
-                                        className="text-button"
-                                        onClick={() => setSelectedItem(null)}
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-
-                                <h3 className="inventory-item-title">{selectedItem.name}</h3>
-                                <p className="inventory-item-subtext">SKU: {selectedItem.sku}</p>
-                                <span className={getStatusClass(selectedItem.status)}>{selectedItem.status}</span>
-
-                                <div className="inventory-card-details detail-panel-grid">
-                                    <div>
-                                        <span className="detail-label">Quantity: </span>
-                                        <span className="detail-value">{selectedItem.quantity} {selectedItem.unit}</span>
-                                    </div>
-
-                                    {canViewMaterialCost && (
-                                            <>
-                                                <div className="detail-row">
-                                                    <span className="detail-label">Unit Cost: </span>
-                                                    <span className="detail-value">{formatCurrency(selectedItem.unitCost)} / {selectedItem.unit}</span>
-                                                </div>
-
-                                                <div className="detail-row">
-                                                    <span className="detail-label">Total Cost: </span>
-                                                    <span className="detail-value">{formatCurrency(selectedItem.totalCost)}</span>
-                                                </div>
-                                            </>
-                                        )}
-
-                                    <div>
-                                        <span className="detail-label">Category: </span>
-                                        <span className="detail-value">{selectedItem.category}</span>
-                                    </div>
-
-                                    <div>
-                                        <span className="detail-label">Project: </span>
-                                        <span className="detail-value">{selectedItem.project}</span>
-                                    </div>
-
-                                    <div>
-                                        <span className="detail-label">Updated: </span>
-                                        <span className="detail-value">{selectedItem.updatedAt}</span>
-                                    </div>
-                                </div>
-
-                                <div className="inventory-location-block">
-                                    <span className="detail-label">Location: </span>
-                                    <span className="detail-value">{selectedItem.location}</span>
-                                </div>
-
-                                {canAdjustInventory && (
-                                    <div className="detail-actions">
-                                        {canAdjustInventory && (
-                                            <button className="primary-button" onClick={() => handleAdjustInventory()}>
-                                                Adjust Inventory
-                                            </button>
-                                        )}
-                                    </div>
-                                )}   
-                            </>
+                            <InventoryDetailContent 
+                                item={selectedItem}
+                                onClose={() => setSelectedItem(null)}
+                                showClose={true}
+                                canViewMaterialCost={canViewMaterialCost}
+                                canAdjustInventory={canAdjustInventory}
+                                onAdjustInventory={handleAdjustInventory}
+                            />
                         ) : (
                             <div className="detail-panel-empty">
                                 <p>Select an inventory item to view more details.</p>

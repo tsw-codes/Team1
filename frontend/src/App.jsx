@@ -1,5 +1,5 @@
-import { use, useState, useMemo } from 'react'
-import { Routes, Route, Navigate, useNavigate, useLocation, useNavigationType} from 'react-router-dom'
+import { useState } from 'react'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import './App.css'
 
@@ -12,9 +12,10 @@ import InventoryPage from './components/InventoryPage'
 import ReceiveInventoryPage from './components/ReceiveInventoryPage'
 import RequestMaterialPage from './components/RequestMaterialPage'
 import ManifestInventoryPage from './components/ManifestInventoryPage'
+import TransferInventoryPage from './components/TransferInventoryPage'
 
-import { mockUsers } from './auth/mockUsers'
 import { getPermissionsForRole } from './auth/permissions'
+import { authenticateUser, updateUserPassword } from './services/authService'
 
 const pageVariants = {
   enter: (direction) => ({
@@ -85,11 +86,7 @@ function App() {
   function handleLogin(e) {
     e.preventDefault()
 
-    const validUser = mockUsers.find(
-      (user) =>
-        user.username === loginForm.username &&
-        user.password === loginForm.password
-    )
+    const validUser = authenticateUser(loginForm.username, loginForm.password)
 
     if (validUser) {
       setCurrentUser(validUser)
@@ -212,10 +209,15 @@ function App() {
       return
     }
 
-    setCurrentUser((prev) => ({
-      ...prev,
-      password: newPassword,
-    }))
+    const updatedUser = updateUserPassword(currentUser.id, newPassword)
+
+    if (!updatedUser) {
+      setChangePasswordSuccess('')
+      setChangePasswordError('Unable to update password.')
+      return
+    }
+
+    setCurrentUser(updatedUser)
 
     setLoginForm((prev) => ({
       ...prev,
@@ -242,156 +244,185 @@ function App() {
   const showAccountIcon = isLoggedIn && location.pathname !== '/login'
 
   return(
-    <div className='app-shell'>
-      <Navbar 
-        isLoggedIn={showAccountIcon}
-        onAccountClick={handleOpenAccount}
-      />
+    <>
+      <div className='orientation-block'>
+        <div className='orientation-message'>
+          <img src='/mec2.png' alt='Company Logo' className='orientation-logo' />
 
-      <main className='main-layout'>
-        <section className='content-window'>
-          <AnimatePresence mode='wait' custom={navDirection}>
-            <Routes location={location} key={location.pathname}>
-              <Route 
-                path='/login'
-                element={
-                  <PageTransition direction={navDirection}>
-                    <LoginPage 
-                      loginForm={loginForm}
-                      loginError={loginError}
-                      onChange={handleChange}
-                      onLogin={handleLogin}
-                    />  
-                  </PageTransition>
-                }
-              />
+          <p>Please rotate your device back to portrait mode.</p>
+        </div>
+      </div>
+      <div className='app-shell'>
+        <Navbar 
+          isLoggedIn={showAccountIcon}
+          onAccountClick={handleOpenAccount}
+        />
 
-              <Route 
-                path='/home'
-                element={
-                  isLoggedIn ? (
+        <main className='main-layout'>
+          <section className='content-window'>
+            <AnimatePresence mode='wait' custom={navDirection}>
+              <Routes location={location} key={location.pathname}>
+                <Route 
+                  path='/login'
+                  element={
                     <PageTransition direction={navDirection}>
-                      <HomePage 
-                        name={currentUser?.name ?? ""}
-                        permissions={permissions}
-                        onOpenPage={handleOpenPage}
-                      />
+                      <LoginPage 
+                        loginForm={loginForm}
+                        loginError={loginError}
+                        onChange={handleChange}
+                        onLogin={handleLogin}
+                      />  
                     </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }  
-              />
+                  }
+                />
 
-              <Route 
-                path='/account'
-                element={
-                  isLoggedIn ? (
-                    <PageTransition direction={navDirection}>
-                      <AccountPage 
-                        username={currentUser?.username ?? ''}
-                        onChangePassword={handleOpenChangePassword}
-                        onLogout={handleLogout}
-                        onBack={handleGoHome}
-                      />
-                    </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }
-              />
+                <Route 
+                  path='/home'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <HomePage 
+                          name={currentUser?.name ?? ""}
+                          permissions={permissions}
+                          onOpenPage={handleOpenPage}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }  
+                />
 
-              <Route 
-                path='/change-password'
-                element={
-                  isLoggedIn ? (
-                    <PageTransition direction={navDirection}>
-                      <ChangePasswordPage 
-                        form={changePasswordForm}
-                        error={changePasswordError}
-                        success={changePasswordSuccess}
-                        onChange={handleChangePasswordInput}
-                        onSubmit={handleChangePasswordSubmit}
-                        onBack={handleBackToAccount}
-                      />
-                    </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }
-              />
+                <Route 
+                  path='/account'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <AccountPage 
+                          username={currentUser?.username ?? ''}
+                          name={currentUser?.name ?? ''}
+                          role={currentUser?.role ?? ''}
+                          onChangePassword={handleOpenChangePassword}
+                          onLogout={handleLogout}
+                          onBack={handleGoHome}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
 
-              <Route 
-                path='/inventory'
-                element={
-                  isLoggedIn ? (
-                    <PageTransition direction={navDirection}>
-                      <InventoryPage 
-                        permissions={permissions}
-                        onBack={handleGoHome}
-                      />
-                    </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }
-              />
+                <Route 
+                  path='/change-password'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <ChangePasswordPage 
+                          form={changePasswordForm}
+                          error={changePasswordError}
+                          success={changePasswordSuccess}
+                          onChange={handleChangePasswordInput}
+                          onSubmit={handleChangePasswordSubmit}
+                          onBack={handleBackToAccount}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
 
-              <Route 
-                path='/receive-inventory'
-                element={
-                  isLoggedIn ? (
-                    <PageTransition direction={navDirection}>
-                      <ReceiveInventoryPage 
-                        onBack={handleGoHome}
-                        currentUser={currentUser}
-                      />
-                    </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }
-              />
+                <Route 
+                  path='/inventory'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <InventoryPage 
+                          permissions={permissions}
+                          onBack={handleGoHome}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
 
-              <Route 
-                path='/request-material'
-                element={
-                  isLoggedIn ? (
-                    <PageTransition direction={navDirection}>
-                      <RequestMaterialPage 
-                        onBack={handleGoHome}
-                        currentUser={currentUser}
-                      />
-                    </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }
-              />
+                <Route 
+                  path='/receive-inventory'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <ReceiveInventoryPage 
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                          permissions={permissions}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
 
-              <Route 
-                path='/manifest-inventory'
-                element={
-                  isLoggedIn ? (
-                    <PageTransition direction={navDirection}>
-                      <ManifestInventoryPage 
-                        onBack={handleGoHome}
-                        currentUser={currentUser}
-                        permissions={permissions}
-                      />
-                    </PageTransition>
-                  ) : (
-                    <Navigate to='/login' replace />
-                  )
-                }
-              />
+                <Route 
+                  path='/request-material'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <RequestMaterialPage 
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
 
-              <Route path="*" element={<Navigate to='/login' replace />} />
-            </Routes>
-          </AnimatePresence>
-        </section>
-      </main>
-    </div>
+                <Route 
+                  path='/manifest-inventory'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <ManifestInventoryPage 
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                          permissions={permissions}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route 
+                  path='/transfer-inventory'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <TransferInventoryPage 
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                          permissions={permissions}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route path="*" element={<Navigate to='/login' replace />} />
+              </Routes>
+            </AnimatePresence>
+          </section>
+        </main>
+      </div>
+    </>
   )
 }
 

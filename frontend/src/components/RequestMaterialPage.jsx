@@ -1,15 +1,15 @@
-import { useRef, useState } from "react"
-
-import {
-    requestableInventory,
-    warehouseNames,
-    getWarehouseFromLocation
-} from "../data/mockInventory"
+import { useMemo, useRef, useState } from "react"
+import { createAuditTimestamp } from "../utils/dateUtils"
+import { createRequest } from "../services/requestService"
+import { 
+    getWarehouseOptions, 
+    getRequestableInventoryForWarehouse,
+} from "../services/inventoryService"
+import { getLocationOptions, getProjectOptionsForLocation, getProjectByValue,} from "../services/projectService"
 
 function createEmptyRequestItem() {
     return {
         id: Date.now() + Math.random(),
-        sourceWarehouse: "",
         inventoryItemId: "",
         requestedQuantity: "",
         source: "manual",
@@ -20,6 +20,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
     const itemRefs = useRef({})
     const requestRefs = useRef({})
     const itemFieldRefs = useRef({})
+    const requestScrollRef = useRef(null)
 
     const [formError, setFormError] = useState("")
     const [requestErrors, setRequestErrors] = useState({})
@@ -27,22 +28,58 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
     const [requestForm, setRequestForm] = useState({
         requestedBy: currentUser?.username || "",
+        createdAt: createAuditTimestamp(),
+        location: "",
         project: "",
         neededByDate: "",
         priority: "",
+        sourceWarehouse: "",
         deliveryLocation: "",
         notes: "",
     })
 
-    const [requestedItems, setRequestedItems] = useState([createEmptyRequestItem()])
+    const [requestedItems, setRequestedItems] = useState([])
+
+    const warehouseOptions = useMemo(() => {
+        return getWarehouseOptions()
+    }, [])
+
+    const locationOptions = useMemo(() => {
+        return getLocationOptions()
+    }, [])
+
+    const projectOptions = useMemo(() => {
+        return getProjectOptionsForLocation(requestForm.location)
+    }, [requestForm.location])
 
     function handleRequestChange(e) {
         const { name, value } = e.target
 
-        setRequestForm((prev) => ({
-            ...prev,
-            [name]: value,
-        }))
+        setRequestForm((prev) => {
+            const next = {
+                ...prev,
+                [name]: value,
+            }
+
+            if (name === "location") {
+                next.project = ""
+                next.deliveryLocation = value
+            }
+            return next
+        })
+
+        if (name === "sourceWarehouse") {
+            setRequestedItems((prev) =>
+                prev.map((item) => ({
+                    ...item,
+                    inventoryItemId: "",
+                    requestedQuantity: "",
+                }))
+            )
+
+            setItemErrors({})
+            setFormError("")
+        }
 
         setRequestErrors((prev) => {
             if (!prev[name]) return prev
@@ -50,6 +87,15 @@ function RequestMaterialPage({ onBack, currentUser }) {
             delete next[name]
             return next
         })
+
+        if (name === "location") {
+            setRequestErrors((prev) => {
+                const next = { ...prev }
+                delete next.project
+                delete next.deliveryLocation
+                return next
+            })
+        }
 
         if (formError) {
             setFormError("")
@@ -61,11 +107,20 @@ function RequestMaterialPage({ onBack, currentUser }) {
             prev.map((item) => {
                 if (item.id !== id) return item
 
-                if (field === "sourceWarehouse") {
-                    return {
-                        ...item,
-                        sourceWarehouse: value,
-                        inventoryItemId: "",
+                if (field === "inventoryItemId") {
+                    const isDuplicate = prev.some(
+                        (requestItem) => requestItem.id !== id && String(requestItem.inventoryItemId) === String(value)
+                    )
+
+                    if (isDuplicate) {
+                        setItemErrors((prevErrors) => ({
+                            ...prevErrors,
+                            [id]: {
+                                ...prevErrors[id],
+                                inventoryItemId: "This inventory item has already been selected.",
+                            },
+                        }))
+                        return item
                     }
                 }
 
@@ -82,10 +137,6 @@ function RequestMaterialPage({ onBack, currentUser }) {
             const next = { ...prev }
             next[id] = { ...next[id] }
             delete next[id][field]
-
-            if (field === "sourceWarehouse") {
-                delete next[id].inventoryItemId
-            }
 
             if (Object.keys(next[id]).length === 0) {
                 delete next[id]
@@ -105,35 +156,44 @@ function RequestMaterialPage({ onBack, currentUser }) {
         setRequestedItems((prev) => [ ...prev, newItem ])
 
         setTimeout(() => {
-            itemRefs.current[newItem.id]?.scrollIntoView({
+            const container = requestScrollRef.current
+            const target = itemRefs.current[newItem.id]
+
+            if (!container || !target) return
+
+            const containerRect = container.getBoundingClientRect()
+            const targetRect = target.getBoundingClientRect()
+
+            const offsetTop = targetRect.top - containerRect.top + container.scrollTop
+
+            container.scrollTo({
+                top: offsetTop,
                 behavior: "smooth",
-                block: "start",
             })
         }, 0);
     }
 
     function handleRemoveItem(id) {
-        setRequestedItems((prev) => {
-            if (prev.length === 1) return prev
-            return prev.filter((item) => item.id !== id)
+        setRequestedItems((prev) => prev.filter((item) => item.id !== id))
+
+        setItemErrors((prev) => {
+            if (!prev[id]) return prev
+            const next = { ...prev }
+            delete next[id]
+            return next
         })
-    }
 
-    function getInventoryOptionsForWarehouse(sourceWarehouse) {
-        return requestableInventory.filter(
-            (item) => getWarehouseFromLocation(item.location) === sourceWarehouse
-        )
-    }
-
-    function getSelectedInventoryItem(inventoryItemId) {
-        return requestableInventory.find(
-            (item) => String(item.id) === String(inventoryItemId)
-        )
+        delete itemRefs.current[id]
+        delete itemFieldRefs.current[id]
     }
 
     function validateRequestForm() {
         const newRequestErrors = {}
         const newItemErrors = {}
+
+        if (!requestForm.location.trim()) {
+            newRequestErrors.location = "Location is required."
+        }
 
         if (!requestForm.project.trim()) {
             newRequestErrors.project = "Project is required."
@@ -145,6 +205,10 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
         if (!requestForm.priority.trim()) {
             newRequestErrors.priority = "Priority is required."
+        }
+
+        if (!requestForm.sourceWarehouse.trim()) {
+            newRequestErrors.sourceWarehouse = "Source warehouse is required."
         }
 
         if (!requestForm.deliveryLocation.trim()) {
@@ -160,17 +224,27 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
         requestedItems.forEach((item) => {
             const errors = {}
-            const selectedInventory = getSelectedInventoryItem(item.inventoryItemId)
-
-            if (!item.sourceWarehouse.trim()) {
-                errors.sourceWarehouse = "Source warehouse is required."
-            }
+            const selectedInventory = getRequestableInventoryForWarehouse(
+                requestForm.sourceWarehouse
+            ).find(
+                (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
+            ) || null
 
             if (!item.inventoryItemId.trim()) {
                 errors.inventoryItemId = "Material selection is required."
             }
 
-            if (!item.requestedQuantity.trim()) {
+            if (item.inventoryItemId) {
+                const duplicateCount = requestedItems.filter(
+                    (requestItem) => String(requestItem.inventoryItemId) === String(item.inventoryItemId)
+                ).length
+
+                if (duplicateCount > 1) {
+                    errors.inventoryItemId = "This inventory item has already been selected."
+                }
+            }
+
+            if (!item.requestedQuantity || Number(item.requestedQuantity) <= 0) {
                 errors.requestedQuantity = "Requested quantity must be greater than 0."
             }
 
@@ -205,7 +279,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
     }
 
     function handleSaveDraft() {
-        alert("Save Draft not yet immplemented.")
+        alert("Save Draft not yet implemented.")
     }
 
     function handleSubmitRequest(e) {
@@ -214,10 +288,38 @@ function RequestMaterialPage({ onBack, currentUser }) {
         const isValid = validateRequestForm()
         if (!isValid) return
 
-        alert("Submit Request not yet implemented.")
+        const selectedProject = getProjectByValue(requestForm.project)
+
+        const newRequest = {
+            requestedBy: requestForm.requestedBy,
+            createdAt: requestForm.createdAt,
+            status: "Pending",
+
+            project: selectedProject?.label || requestForm.project,
+            neededByDate: requestForm.neededByDate,
+            priority: requestForm.priority,
+            deliveryLocation: requestForm.deliveryLocation,
+            notes: requestForm.notes,
+
+            items: requestedItems.map((item, index) => ({
+                id: index + 1,
+                inventoryItemId: Number(item.inventoryItemId),
+                requestedQuantity: Number(item.requestedQuantity),
+            })),
+        }
+
+        const createdRequest = createRequest(newRequest)
+
+        alert(`Request ${createdRequest.id} created.`)
     }
 
     function scrollToFirstError(newRequestErrors, newItemErrors) {
+        if (newRequestErrors.location) {
+            requestRefs.current.location?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.location?.focus?.()
+            return
+        }
+        
         if (newRequestErrors.project) {
             requestRefs.current.project?.scrollIntoView({ behavior: "smooth", block: "center"})
             requestRefs.current.project?.focus?.()
@@ -236,6 +338,12 @@ function RequestMaterialPage({ onBack, currentUser }) {
             return
         }
 
+        if (newRequestErrors.sourceWarehouse) {
+            requestRefs.current.sourceWarehouse?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.sourceWarehouse?.focus?.()
+            return
+        }
+
         if (newRequestErrors.deliveryLocation) {
             requestRefs.current.deliveryLocation?.scrollIntoView({ behavior: "smooth", block: "center"})
             requestRefs.current.deliveryLocation?.focus?.()
@@ -246,7 +354,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
         if (!firstItemId) return
 
         const firstItemErrors = newItemErrors[firstItemId]
-        const order = ["sourceWarehouse", "inventoryItemId", "requestQuantity"]
+        const order = ["inventoryItemId", "requestedQuantity"]
 
         for (const field of order) {
             if (firstItemErrors[field]) {
@@ -262,7 +370,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
     return (
         <div className="request-page">
-            <div className="request-page-scroll">
+            <div className="request-page-scroll" ref={requestScrollRef}>
                 <form className="request-form" onSubmit={handleSubmitRequest}>
                     <section className="page-section request-header">
                         <div className="request-header-bar">
@@ -300,16 +408,45 @@ function RequestMaterialPage({ onBack, currentUser }) {
                             </label>
 
                             <label className="form-group">
+                                <span className="form-label">Location</span>
+                                <select
+                                    ref={(el) => (requestRefs.current.location) = el}
+                                    className={`form-input ${requestErrors.location ? "input-error": ""}`}
+                                    name="location"
+                                    value={requestForm.location}
+                                    onChange={handleRequestChange}
+                                >
+                                    <option value="">Select location</option>
+                                    {locationOptions.map((location) => (
+                                        <option key={location.value} value={location.value}>
+                                            {location.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                {requestErrors.project && (
+                                    <span className="field-error">{requestErrors.location}</span>
+                                )}
+                            </label>
+
+                            <label className="form-group">
                                 <span className="form-label">Project</span>
-                                <input 
+                                <select
                                     ref={(el) => (requestRefs.current.project) = el}
                                     className={`form-input ${requestErrors.project ? "input-error": ""}`}
-                                    type="text"
                                     name="project"
                                     value={requestForm.project}
                                     onChange={handleRequestChange}
-                                    placeholder="Enter project name."
-                                />
+                                    disabled={!requestForm.location}
+                                >
+                                    <option value="">
+                                        {requestForm.location ? "Select project" : "Select location first"}
+                                    </option>
+                                    {projectOptions.map((project) => (
+                                        <option key={project.value} value={project.value}>
+                                            {project.label}
+                                        </option>
+                                    ))}
+                                </select>
                                 {requestErrors.project && (
                                     <span className="field-error">{requestErrors.project}</span>
                                 )}
@@ -335,7 +472,6 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                 <select 
                                     ref={(el) => (requestRefs.current.priority) = el}
                                     className={`form-input ${requestErrors.priority ? "input-error": ""}`}
-                                    type="text"
                                     name="priority"
                                     value={requestForm.priority}
                                     onChange={handleRequestChange}   
@@ -352,17 +488,37 @@ function RequestMaterialPage({ onBack, currentUser }) {
                             </label>
 
                             <label className="form-group">
+                                <span className="form-label">Source Warehouse</span>
+                                <select 
+                                    ref={(el) => (requestRefs.current.sourceWarehouse) = el}
+                                    className={`form-input ${requestErrors.sourceWarehouse ? "input-error": ""}`}
+                                    name="sourceWarehouse"
+                                    value={requestForm.sourceWarehouse}
+                                    onChange={handleRequestChange}   
+                                >
+                                    <option value="">Select Warehouse</option>
+                                    {warehouseOptions.map((warehouse) => (
+                                        <option key={warehouse} value={warehouse}>
+                                            {warehouse}
+                                        </option>
+                                    ))}
+                                </select>
+                                {requestErrors.sourceWarehouse && (
+                                    <span className="field-error">{requestErrors.sourceWarehouse}</span>
+                                )}
+                            </label>
+
+                            <label className="form-group">
                                 <span className="form-label">Requested Delivery Location</span>
                                 <input 
                                     ref={(el) => (requestRefs.current.deliveryLocation) = el}
-                                    className={`form-input ${requestErrors.project ? "input-error": ""}`}
+                                    className={`form-input read-only-input ${requestErrors.deliveryLocation ? "input-error": ""}`}
                                     type="text"
                                     name="deliveryLocation"
                                     value={requestForm.deliveryLocation}
-                                    onChange={handleRequestChange}
-                                    placeholder="Enter project name."
+                                    readOnly
                                 />
-                                {requestErrors.project && (
+                                {requestErrors.deliveryLocation && (
                                     <span className="field-error">{requestErrors.deliveryLocation}</span>
                                 )}
                             </label>
@@ -376,8 +532,14 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
                         <div className="received-items-list">
                             {requestedItems.map((item, index) => {
-                                const inventoryOptions = getInventoryOptionsForWarehouse(item.sourceWarehouse)
-                                const selectedInventory = getSelectedInventoryItem(item.inventoryItemId)
+                                const inventoryOptions = getRequestableInventoryForWarehouse(requestForm.sourceWarehouse)
+                                const selectedInventory = inventoryOptions.find(
+                                    (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
+                                ) || null
+
+                                const selectedInventoryIds = requestedItems
+                                    .filter((requestItem) => requestItem.id !== item.id && requestItem.inventoryItemId)
+                                    .map((requestItem) => String(requestItem.inventoryItemId))
 
                                 return (
                                     <div
@@ -399,35 +561,6 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                         </div>
 
                                         <div className="receive-form-grid">
-                                            <label className="form-group">
-                                                <span className="form-label">Source Warehouse</span>
-                                                <select
-                                                    ref={(el) => {
-                                                        if (!itemFieldRefs.current[item.id]) {
-                                                            itemFieldRefs.current[item.id] = {}
-                                                        }
-                                                        itemFieldRefs.current[item.id].sourceWarehouse = el
-                                                    }}
-                                                    className={`form-input ${itemErrors[item.id]?.sourceWarehouse ? "input-error" : ""}`}
-                                                    value={item.sourceWarehouse}
-                                                    onChange={(e) =>
-                                                        handleItemChange(item.id, "sourceWarehouse", e.target.value)
-                                                    }
-                                                >
-                                                    <option value="">Select warehouse</option>
-                                                    {warehouseNames.map((warehouse) => (
-                                                        <option key={warehouse} value={warehouse}>
-                                                            {warehouse}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {itemErrors[item.id]?.sourceWarehouse && (
-                                                    <span className="field-error">
-                                                        {itemErrors[item.id].sourceWarehouse}
-                                                    </span>
-                                                )}
-                                            </label>
-
                                             <label className="form-group receive-form-span-2">
                                                 <span className="form-label">Material</span>
                                                 <select
@@ -442,16 +575,19 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                                     onChange={(e) =>
                                                         handleItemChange(item.id, "inventoryItemId", e.target.value)
                                                     }
-                                                    disabled={!item.sourceWarehouse}
+                                                    disabled={!requestForm.sourceWarehouse}
                                                 >
                                                     <option value="">
-                                                        {item.sourceWarehouse ? "Select Material" : "Select warehouse first"}
+                                                        {requestForm.sourceWarehouse ? "Select Material" : "Select warehouse first"}
                                                     </option>
-                                                    {inventoryOptions.map((inventoryItem) => (
-                                                        <option key={inventoryItem.id} value={inventoryItem.id}>
-                                                            {inventoryItem.name} ({inventoryItem.sku})
-                                                        </option>
-                                                    ))}
+                                                    {inventoryOptions
+                                                        .filter((inventoryItem) => !selectedInventoryIds.includes(String(inventoryItem.id)))
+                                                        .map((inventoryItem) => (
+                                                            <option key={inventoryItem.id} value={inventoryItem.id}>
+                                                                {inventoryItem.name} ({inventoryItem.sku})
+                                                            </option>
+                                                        ))
+                                                    }
                                                 </select>
                                                 {itemErrors[item.id]?.inventoryItemId && (
                                                     <span className="field-error">
@@ -520,10 +656,16 @@ function RequestMaterialPage({ onBack, currentUser }) {
                         </div>
 
                         <div className="receive-add-item">
+                            {requestedItems.length === 0 && (
+                                <div className="empty-state-message">
+                                    No items added yet. Select a source warehouse, then click Add Item.
+                                </div>
+                            )}
                             <button
                                 className="secondary-button"
                                 type="button"
                                 onClick={handleAddItem}
+                                disabled={!requestForm.sourceWarehouse}
                             >
                                 + Add Item
                             </button>

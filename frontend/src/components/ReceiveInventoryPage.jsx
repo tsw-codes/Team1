@@ -1,6 +1,7 @@
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
+import { getLocationOptionsForPermissions, getProjectOptionsForLocation } from "../services/projectService"
 
-function ReceiveInventoryPage({ onBack, currentUser }) {
+function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
     const fileInputRef = useRef(null)
     const itemRefs = useRef({})
     const deliveryRefs = useRef({})
@@ -18,6 +19,7 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
         deliveryDate: "",
         receivedBy: currentUser?.username || "",
         project: "",
+        location: "",
         notes: "",
     })
 
@@ -29,10 +31,16 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
         quantity: "",
         unit: "",
         condition: "",
-        location: "",
         source: "manual",
         },
     ])
+
+    const locationOptions = useMemo(() => {
+        return getLocationOptionsForPermissions(permissions)
+    }, [permissions])
+    const projectOptions = useMemo(() => {
+        return getProjectOptionsForLocation(deliveryForm.location)
+    }, [deliveryForm.location])
 
     function handleScanClick() {
         fileInputRef.current?.click()
@@ -65,10 +73,18 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
     function handleDeliveryChange(e) {
         const { name, value } = e.target
 
-        setDeliveryForm((prev) => ({
-            ...prev,
-            [name]: value,
-        }))
+        setDeliveryForm((prev) => {
+            const next = {
+                ...prev, 
+                [name]: value,
+            }
+
+            if (name === "location") {
+                next.project = ""
+            }
+
+            return next
+        })
 
         setDeliveryErrors((prev) => {
             if (!prev[name]) return prev
@@ -76,6 +92,14 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
             delete next[name]
             return next
         })
+
+        if (name === "location") {
+            setDeliveryErrors((prev) => {
+                const next = { ...prev }
+                delete next.project
+                return next
+            })
+        }
 
         if (formError) {
             setFormError("")
@@ -110,13 +134,12 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
     function handleAddItem() {
         const newItem = {
             id: Date.now(),
-                materialName: "",
-                sku: "",
-                quantity: "",
-                unit: "", 
-                condition: "",
-                location: "",
-                source: "manual",
+            materialName: "",
+            sku: "",
+            quantity: "",
+            unit: "", 
+            condition: "",
+            source: "manual",
         }
 
         setReceivedItems ((prev) => [...prev, newItem])
@@ -156,6 +179,25 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
             newDeliveryErrors.project = "Project is required."
         }
 
+        if (!deliveryForm.location.trim()) {
+            newDeliveryErrors.location = "Location is required."
+        }
+
+        const selectedLocation = locationOptions.find(
+            (location) => location.value === deliveryForm.location
+        )
+
+        const canReceiveAtWarehouse = permissions.includes("receive_inventory_warehouse")
+        const canReceiveAtSite = permissions.includes("receive_inventory_site")
+
+        if (deliveryForm.location && selectedLocation?.type === "warehouse" && !canReceiveAtWarehouse) {
+            newDeliveryErrors.location = "You are not allowed to receive at warehouse locations."
+        }
+
+        if (deliveryForm.location && selectedLocation?.type === "site" && !canReceiveAtSite) {
+            newDeliveryErrors.location = "You are not allowed to receive at site locations."
+        }
+
         if (receivedItems.length === 0) {
             setFormError("At least one received item is required.")
             setDeliveryErrors(newDeliveryErrors)
@@ -180,10 +222,6 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
 
             if (!item.condition.trim()) {
                 errors.condition = "Condition is required."
-            }
-
-            if (!item.location.trim()) {
-                errors.location = "Assigned location is required."
             }
 
             if (!item.sku.trim()) {
@@ -226,7 +264,13 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
 
         if (newDeliveryErrors.deliveryDate) {
             deliveryRefs.current.deliveryDate?.scrollIntoView({ behavior: "smooth", block: "center"})
-            deliveryRefs.current.vendor?.deliveryDate?.()
+            deliveryRefs.current.deliveryDate?.focus?.()
+            return
+        }
+
+        if (newDeliveryErrors.location) {
+            deliveryRefs.current.location?.scrollIntoView({ behavior: "smooth", block: "center"})
+            deliveryRefs.current.location?.focus?.()
             return
         }
 
@@ -247,7 +291,6 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
             "quantity",
             "unit",
             "condition",
-            "location",
         ]
 
         for (const field of fieldsOrder) {
@@ -280,7 +323,7 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
                         </div>
 
                         <p className="page-subtitle">
-                            Log incoming materials, assign locations, and document deliveries.
+                            Log incoming materials, assign a receiving location, and document deliveries.
                         </p>
                     </section>
 
@@ -356,7 +399,7 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
                             <label className="form-group">
                                 <span className="form-label">PO Number</span>
                                 <input 
-                                    ref={(el) => (deliveryRefs.current.materialName = el)}
+                                    ref={(el) => (deliveryRefs.current.poNumber = el)}
                                     className={`form-input ${deliveryErrors.poNumber ? "input-error" : ""}`}
                                     type="text"
                                     name="poNumber"
@@ -396,16 +439,45 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
                             </label>
 
                             <label className="form-group receive-form-span-2">
+                                <span className="form-label">Assigned Location</span>
+                                <select
+                                    ref={(el) => (deliveryRefs.current.location = el)}
+                                    className={`form-input ${deliveryErrors.location ? "input-error" : ""}`}
+                                    name="location"
+                                    value={deliveryForm.location}
+                                    onChange={handleDeliveryChange}
+                                >
+                                    <option value="">Select location</option>
+                                    {locationOptions.map((location) => (
+                                        <option key={location.value} value={location.value}>
+                                            {location.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                {deliveryErrors.location && (
+                                    <span className="field-error">{deliveryErrors.location}</span>
+                                )}
+                            </label>
+                            
+                            <label className="form-group receive-form-span-2">
                                 <span className="form-label">Project</span>
-                                <input 
+                                <select
                                     ref={(el) => (deliveryRefs.current.project = el)}
                                     className={`form-input ${deliveryErrors.project ? "input-error" : ""}`}
-                                    type="text"
                                     name="project"
                                     value={deliveryForm.project}
                                     onChange={handleDeliveryChange}
-                                    placeholder="Enter project name"
-                                />
+                                    disabled={!deliveryForm.location}
+                                >
+                                    <option value="">
+                                        {deliveryForm.location ? "Select project" : "Select location first"}
+                                    </option>
+                                    {projectOptions.map((project) => (
+                                        <option key={project.value} value={project.value}>
+                                            {project.label}
+                                        </option>
+                                    ))}
+                                </select>
                                 {deliveryErrors.project && (
                                     <span className="field-error">{deliveryErrors.project}</span>
                                 )}
@@ -553,29 +625,6 @@ function ReceiveInventoryPage({ onBack, currentUser }) {
                                             </select>
                                             {itemErrors[item.id]?.condition && (
                                                 <span className="field-error">{itemErrors[item.id].condition}</span>
-                                            )}
-                                        </label>
-
-                                        <label className="form-group receive-form-span-2">
-                                            <span className="form-label">Assigned Location</span>
-                                            <input 
-                                                ref={(el) => {
-                                                    if (!itemFieldRefs.current[item.id]) {
-                                                    itemFieldRefs.current[item.id] = {}
-                                                    }
-                                                    itemFieldRefs.current[item.id].location = el
-                                                }}
-                                                className={`form-input ${itemErrors[item.id]?.location ? "input-error" : ""}`}
-                                                type="text"
-                                                name="location"
-                                                value={item.location}
-                                                onChange={(e) =>
-                                                    handleItemChange(item.id, "location", e.target.value)
-                                                }
-                                                placeholder="Warhouse A / Rack 3"
-                                            />
-                                            {itemErrors[item.id]?.location && (
-                                                <span className="field-error">{itemErrors[item.id].location}</span>
                                             )}
                                         </label>
                                     </div>

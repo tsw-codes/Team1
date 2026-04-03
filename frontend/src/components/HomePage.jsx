@@ -37,6 +37,14 @@ function HomePage({ name, permissions, onOpenInventory, onOpenPage }) {
             permission: 'manifest_inventory',
         },
         {
+            key: 'transfer_inventory',
+            title: 'Transfer Inventory',
+            description: 'Execute shipment and receipt for finalized manifests.',
+            icon: '🔄',
+            path: '/transfer-inventory',
+            permission: 'transfer_inventory',
+        },
+        {
             key: 'admin_tools',
             title: 'Admin Tools',
             description: 'Manage users and settings.',

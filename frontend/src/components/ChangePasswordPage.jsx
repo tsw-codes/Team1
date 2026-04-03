@@ -104,7 +104,7 @@ function ChangePasswordPage({ form, error, success, onChange, onSubmit, onBack})
 
                     <div className="change-password-actions">
                         <button className="primary-button" type="submit" disabled={!canSave}>Save</button>
-                        <button className="secondary-button" type="button" onClick={onBack}>Back</button>
+                        <button className="secondary-button" type="button" onClick={onBack}>Cancel</button>
                     </div>
                 </form>
             </div>
