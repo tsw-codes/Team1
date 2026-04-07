@@ -100,3 +100,23 @@ export function getLocationOptionsForPermissions(permissions = []) {
       type,
     }))
 }
+
+export function getSiteLocationOptions() {
+  return mockLocations
+    .filter((location) => location.type === "site")
+    .map(({ value, label, type }) => ({
+      value, 
+      label,
+      type,
+    }))
+}
+
+export function getWarehouseLocationOptions() {
+  return mockLocations
+    .filter((location) => location.type === "warehouse")
+    .map(({ value, label, type }) => ({
+      value, 
+      label,
+      type,
+    }))
+}

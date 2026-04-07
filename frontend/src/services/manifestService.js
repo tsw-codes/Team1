@@ -50,7 +50,7 @@ export function getAllowedManifestModes(permissions = []) {
 
 export function getAvailableManifestsForTransfer(permissions = []) {
   return mockManifests.filter((manifest) => {
-    if (manifest.status !== "finalized") return false
+    if ((manifest.statusValue || manifest.status) !== "finalized") return false
 
     const requiredPermission = transferPermissionMap[manifest.manifestType]
     return requiredPermission ? permissions.includes(requiredPermission) : false
@@ -58,7 +58,14 @@ export function getAvailableManifestsForTransfer(permissions = []) {
 }
 
 export function createManifest(newManifest) {
-  const manifestWithId = { ...newManifest, id: generateManifestId(newManifest.manifestType)}
+  const manifestWithId = { 
+    ...newManifest, 
+    id: generateManifestId(newManifest.manifestTypeValue || newManifest.manifestType),
+    manifestTypeValue: newManifest.manifestTypeValue || newManifest.manifestType,
+    manifestType: newManifest.manifestType || newManifest.manifestTypeValue,
+    statusValue: newManifest.statusValue || "finalized",
+    status: newManifest.status || "Finalized",
+  }
 
   mockManifests.unshift(manifestWithId)
   return manifestWithId

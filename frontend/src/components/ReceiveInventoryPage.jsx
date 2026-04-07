@@ -1,5 +1,10 @@
 import { useMemo, useRef, useState } from "react"
-import { getLocationOptionsForPermissions, getProjectOptionsForLocation } from "../services/projectService"
+import { 
+    getLocationOptionsForPermissions,
+    getProjectOptionsForLocation,
+    getLocationByValue,
+    getProjectByValue,
+ } from "../services/projectService"
 
 function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
     const fileInputRef = useRef(null)
@@ -18,8 +23,8 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
         poNumber: "",
         deliveryDate: "",
         receivedBy: currentUser?.username || "",
-        project: "",
-        location: "",
+        projectValue: "",
+        locationValue: "",
         notes: "",
     })
 
@@ -38,9 +43,18 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
     const locationOptions = useMemo(() => {
         return getLocationOptionsForPermissions(permissions)
     }, [permissions])
+    
     const projectOptions = useMemo(() => {
-        return getProjectOptionsForLocation(deliveryForm.location)
-    }, [deliveryForm.location])
+        return getProjectOptionsForLocation(deliveryForm.locationValue)
+    }, [deliveryForm.locationValue])
+
+    const selectedLocation = useMemo(() => {
+        return getLocationByValue(deliveryForm.locationValue)
+    }, [deliveryForm.locationValue])
+
+    const selectedProject = useMemo(() => {
+        return getProjectByValue(deliveryForm.projectValue)
+    }, [deliveryForm.projectValue])
 
     function handleScanClick() {
         fileInputRef.current?.click()
@@ -67,6 +81,32 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
 
         const isValid = validateReceiveForm()
         if (!isValid) return
+        
+        const receiptPayload = {
+            vendor: deliveryForm.vendor,
+            poNumber: deliveryForm.poNumber,
+            deliveryDate: deliveryForm.deliveryDate,
+            receivedBy: deliveryForm.receivedBy,
+
+            locationValue: deliveryForm.locationValue,
+            location: selectedLocation?.label || "",
+
+            projectValue: deliveryForm.projectValue,
+            project: selectedProject?.label || "",
+
+            notes: deliveryForm.notes,
+
+            items: receivedItems.map((item, index) => ({
+                id: index + 1,
+                materialName: item.materialName,
+                sku: item.sku,
+                quantity: Number(item.quantity),
+                unit: item.unit,
+                condition: item.condition,
+                source: item.source,
+            })),
+        }
+
         alert("Confirm Receipt not yet implemented.")
     }
 
@@ -79,8 +119,8 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
                 [name]: value,
             }
 
-            if (name === "location") {
-                next.project = ""
+            if (name === "locationValue") {
+                next.projectValue = ""
             }
 
             return next
@@ -93,10 +133,10 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
             return next
         })
 
-        if (name === "location") {
+        if (name === "locationValue") {
             setDeliveryErrors((prev) => {
                 const next = { ...prev }
-                delete next.project
+                delete next.projectValue
                 return next
             })
         }
@@ -175,27 +215,23 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
             newDeliveryErrors.deliveryDate = "Delivery Date is required."
         }
 
-        if (!deliveryForm.project.trim()) {
-            newDeliveryErrors.project = "Project is required."
+        if (!deliveryForm.projectValue.trim()) {
+            newDeliveryErrors.projectValue = "Project is required."
         }
 
-        if (!deliveryForm.location.trim()) {
-            newDeliveryErrors.location = "Location is required."
+        if (!deliveryForm.locationValue.trim()) {
+            newDeliveryErrors.locationValue = "Location is required."
         }
-
-        const selectedLocation = locationOptions.find(
-            (location) => location.value === deliveryForm.location
-        )
 
         const canReceiveAtWarehouse = permissions.includes("receive_inventory_warehouse")
         const canReceiveAtSite = permissions.includes("receive_inventory_site")
 
-        if (deliveryForm.location && selectedLocation?.type === "warehouse" && !canReceiveAtWarehouse) {
-            newDeliveryErrors.location = "You are not allowed to receive at warehouse locations."
+        if (deliveryForm.locationValue && selectedLocation?.type === "warehouse" && !canReceiveAtWarehouse) {
+            newDeliveryErrors.locationValue = "You are not allowed to receive at warehouse locations."
         }
 
-        if (deliveryForm.location && selectedLocation?.type === "site" && !canReceiveAtSite) {
-            newDeliveryErrors.location = "You are not allowed to receive at site locations."
+        if (deliveryForm.locationValue && selectedLocation?.type === "site" && !canReceiveAtSite) {
+            newDeliveryErrors.locationValue = "You are not allowed to receive at site locations."
         }
 
         if (receivedItems.length === 0) {
@@ -268,15 +304,15 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
             return
         }
 
-        if (newDeliveryErrors.location) {
-            deliveryRefs.current.location?.scrollIntoView({ behavior: "smooth", block: "center"})
-            deliveryRefs.current.location?.focus?.()
+        if (newDeliveryErrors.locationValue) {
+            deliveryRefs.current.locationValue?.scrollIntoView({ behavior: "smooth", block: "center"})
+            deliveryRefs.current.locationValue?.focus?.()
             return
         }
 
-        if (newDeliveryErrors.project) {
-            deliveryRefs.current.project?.scrollIntoView({ behavior: "smooth", block: "center"})
-            deliveryRefs.current.project?.focus?.()
+        if (newDeliveryErrors.projectValue) {
+            deliveryRefs.current.projectValue?.scrollIntoView({ behavior: "smooth", block: "center"})
+            deliveryRefs.current.projectValue?.focus?.()
             return
         }
 
@@ -441,10 +477,10 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <label className="form-group receive-form-span-2">
                                 <span className="form-label">Assigned Location</span>
                                 <select
-                                    ref={(el) => (deliveryRefs.current.location = el)}
-                                    className={`form-input ${deliveryErrors.location ? "input-error" : ""}`}
-                                    name="location"
-                                    value={deliveryForm.location}
+                                    ref={(el) => (deliveryRefs.current.locationValue = el)}
+                                    className={`form-input ${deliveryErrors.locationValue ? "input-error" : ""}`}
+                                    name="locationValue"
+                                    value={deliveryForm.locationValue}
                                     onChange={handleDeliveryChange}
                                 >
                                     <option value="">Select location</option>
@@ -454,23 +490,23 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
                                         </option>
                                     ))}
                                 </select>
-                                {deliveryErrors.location && (
-                                    <span className="field-error">{deliveryErrors.location}</span>
+                                {deliveryErrors.locationValue && (
+                                    <span className="field-error">{deliveryErrors.locationValue}</span>
                                 )}
                             </label>
                             
                             <label className="form-group receive-form-span-2">
                                 <span className="form-label">Project</span>
                                 <select
-                                    ref={(el) => (deliveryRefs.current.project = el)}
-                                    className={`form-input ${deliveryErrors.project ? "input-error" : ""}`}
-                                    name="project"
-                                    value={deliveryForm.project}
+                                    ref={(el) => (deliveryRefs.current.projectValue = el)}
+                                    className={`form-input ${deliveryErrors.projectValue ? "input-error" : ""}`}
+                                    name="projectValue"
+                                    value={deliveryForm.projectValue}
                                     onChange={handleDeliveryChange}
-                                    disabled={!deliveryForm.location}
+                                    disabled={!deliveryForm.locationValue}
                                 >
                                     <option value="">
-                                        {deliveryForm.location ? "Select project" : "Select location first"}
+                                        {deliveryForm.locationValue ? "Select project" : "Select location first"}
                                     </option>
                                     {projectOptions.map((project) => (
                                         <option key={project.value} value={project.value}>
@@ -478,8 +514,8 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
                                         </option>
                                     ))}
                                 </select>
-                                {deliveryErrors.project && (
-                                    <span className="field-error">{deliveryErrors.project}</span>
+                                {deliveryErrors.projectValue && (
+                                    <span className="field-error">{deliveryErrors.projectValue}</span>
                                 )}
                             </label>
                         </div>

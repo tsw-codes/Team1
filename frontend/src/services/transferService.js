@@ -40,7 +40,8 @@ export function findTransferById(id) {
 
 export function getTransfersForPermissions(permissions = []) {
     return mockTransfers.filter((transfer) => {
-        if (!ACTIVE_STATUSES.includes(transfer.status)) return false
+        const statusValue = transfer.statusValue || transfer.status
+        if (!ACTIVE_STATUSES.includes(statusValue)) return false
         
         const requiredPermission = transferPermissionMap[transfer.transferType]
         return requiredPermission ? permissions.includes(requiredPermission) : false
@@ -48,7 +49,15 @@ export function getTransfersForPermissions(permissions = []) {
 }
 
 export function createTransfer(newTransfer) {
-    const transferWithId = { ...newTransfer, id: generateTransferId(newTransfer.transferType)}
+    const transferTypeValue = newTransfer.transferTypeValue || newTransfer.transferType
+    const transferWithId = { 
+        ...newTransfer, 
+        id: generateTransferId(transferTypeValue),
+        transferTypeValue,
+        transferType: newTransfer.transferType || transferTypeValue,
+        statusValue: newTransfer.statusValue || "in_transit",
+        status: newTransfer.status || "In Transit"
+    }
 
     mockTransfers.unshift(transferWithId)
     return transferWithId

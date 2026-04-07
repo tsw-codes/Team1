@@ -1,11 +1,14 @@
 import { useMemo, useRef, useState } from "react"
 import { createAuditTimestamp } from "../utils/dateUtils"
 import { createRequest } from "../services/requestService"
+import { getRequestableInventoryForWarehouse } from "../services/inventoryService"
 import { 
-    getWarehouseOptions, 
-    getRequestableInventoryForWarehouse,
-} from "../services/inventoryService"
-import { getLocationOptions, getProjectOptionsForLocation, getProjectByValue,} from "../services/projectService"
+    getSiteLocationOptions, 
+    getWarehouseLocationOptions,
+    getProjectOptionsForLocation, 
+    getProjectByValue,
+    getLocationByValue,
+} from "../services/projectService"
 
 function createEmptyRequestItem() {
     return {
@@ -29,28 +32,40 @@ function RequestMaterialPage({ onBack, currentUser }) {
     const [requestForm, setRequestForm] = useState({
         requestedBy: currentUser?.username || "",
         createdAt: createAuditTimestamp(),
-        location: "",
-        project: "",
+        locationValue: "",
+        projectValue: "",
         neededByDate: "",
-        priority: "",
-        sourceWarehouse: "",
-        deliveryLocation: "",
+        priorityValue: "",
+        sourceWarehouseValue: "",
+        deliveryLocationText: "",
         notes: "",
     })
 
     const [requestedItems, setRequestedItems] = useState([])
 
     const warehouseOptions = useMemo(() => {
-        return getWarehouseOptions()
+        return getWarehouseLocationOptions()
     }, [])
 
     const locationOptions = useMemo(() => {
-        return getLocationOptions()
+        return getSiteLocationOptions()
     }, [])
 
     const projectOptions = useMemo(() => {
-        return getProjectOptionsForLocation(requestForm.location)
-    }, [requestForm.location])
+        return getProjectOptionsForLocation(requestForm.locationValue)
+    }, [requestForm.locationValue])
+
+    const selectedLocation = useMemo(() => {
+        return getLocationByValue(requestForm.locationValue)
+    }, [requestForm.locationValue])
+
+    const selectedProject = useMemo(() => {
+        return getProjectByValue(requestForm.projectValue)
+    }, [requestForm.projectValue])
+
+    const selectedSourceWarehouse = useMemo(() => {
+        return getLocationByValue(requestForm.sourceWarehouseValue)
+    }, [requestForm.sourceWarehouseValue])
 
     function handleRequestChange(e) {
         const { name, value } = e.target
@@ -61,14 +76,13 @@ function RequestMaterialPage({ onBack, currentUser }) {
                 [name]: value,
             }
 
-            if (name === "location") {
-                next.project = ""
-                next.deliveryLocation = value
+            if (name === "locationValue") {
+                next.projectValue = ""
             }
             return next
         })
 
-        if (name === "sourceWarehouse") {
+        if (name === "sourceWarehouseValue") {
             setRequestedItems((prev) =>
                 prev.map((item) => ({
                     ...item,
@@ -88,11 +102,11 @@ function RequestMaterialPage({ onBack, currentUser }) {
             return next
         })
 
-        if (name === "location") {
+        if (name === "locationValue") {
             setRequestErrors((prev) => {
                 const next = { ...prev }
-                delete next.project
-                delete next.deliveryLocation
+                delete next.projectValue
+                delete next.deliveryLocationValue
                 return next
             })
         }
@@ -191,28 +205,34 @@ function RequestMaterialPage({ onBack, currentUser }) {
         const newRequestErrors = {}
         const newItemErrors = {}
 
-        if (!requestForm.location.trim()) {
-            newRequestErrors.location = "Location is required."
+        if (!requestForm.locationValue.trim()) {
+            newRequestErrors.locationValue = "Location is required."
         }
 
-        if (!requestForm.project.trim()) {
-            newRequestErrors.project = "Project is required."
+        const selectedLocation = getLocationByValue(requestForm.locationValue)
+
+        if (requestForm.locationValue && selectedLocation?.type !== "site") {
+            newRequestErrors.locationValue = "Request must be delivered to a site location."
+        }
+
+        if (!requestForm.projectValue.trim()) {
+            newRequestErrors.projectValue = "Project is required."
         }
 
         if (!requestForm.neededByDate.trim()) {
             newRequestErrors.neededByDate = "Needed by date is required."
         }
 
-        if (!requestForm.priority.trim()) {
-            newRequestErrors.priority = "Priority is required."
+        if (!requestForm.priorityValue.trim()) {
+            newRequestErrors.priorityValue = "Priority is required."
         }
 
-        if (!requestForm.sourceWarehouse.trim()) {
-            newRequestErrors.sourceWarehouse = "Source warehouse is required."
+        if (!requestForm.sourceWarehouseValue.trim()) {
+            newRequestErrors.sourceWarehouseValue = "Source warehouse is required."
         }
 
-        if (!requestForm.deliveryLocation.trim()) {
-            newRequestErrors.deliveryLocation = "Delivery location is required."
+        if (!requestForm.deliveryLocationText.trim()) {
+            newRequestErrors.deliveryLocationText = "Delivery location is required."
         }
 
         if (requestedItems.length === 0) {
@@ -225,7 +245,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
         requestedItems.forEach((item) => {
             const errors = {}
             const selectedInventory = getRequestableInventoryForWarehouse(
-                requestForm.sourceWarehouse
+                requestForm.sourceWarehouseValue
             ).find(
                 (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
             ) || null
@@ -288,17 +308,37 @@ function RequestMaterialPage({ onBack, currentUser }) {
         const isValid = validateRequestForm()
         if (!isValid) return
 
-        const selectedProject = getProjectByValue(requestForm.project)
-
+        const priorityLabelMap = {
+            low: "Low",
+            normal: "Normal",
+            high: "High",
+            urgent: "Urgent",
+        }
+        
         const newRequest = {
             requestedBy: requestForm.requestedBy,
             createdAt: requestForm.createdAt,
+            
+            statusValue: "pending",
             status: "Pending",
 
-            project: selectedProject?.label || requestForm.project,
+            locationValue: requestForm.locationValue,
+            location: selectedLocation?.label || "",
+            locationType: selectedLocation?.type || "",
+
+            projectValue: requestForm.projectValue,
+            project: selectedProject?.label || "",
+
             neededByDate: requestForm.neededByDate,
-            priority: requestForm.priority,
-            deliveryLocation: requestForm.deliveryLocation,
+
+            priorityValue: requestForm.priorityValue,
+            priority: priorityLabelMap[requestForm.priorityValue] || "",
+
+            sourceWarehouseValue: requestForm.sourceWarehouseValue,
+            sourceWarehouse: selectedSourceWarehouse?.label || "",
+
+            deliveryLocationText: requestForm.deliveryLocationText.trim(),
+
             notes: requestForm.notes,
 
             items: requestedItems.map((item, index) => ({
@@ -314,15 +354,15 @@ function RequestMaterialPage({ onBack, currentUser }) {
     }
 
     function scrollToFirstError(newRequestErrors, newItemErrors) {
-        if (newRequestErrors.location) {
-            requestRefs.current.location?.scrollIntoView({ behavior: "smooth", block: "center"})
-            requestRefs.current.location?.focus?.()
+        if (newRequestErrors.locationValue) {
+            requestRefs.current.locationValue?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.locationValue?.focus?.()
             return
         }
         
-        if (newRequestErrors.project) {
-            requestRefs.current.project?.scrollIntoView({ behavior: "smooth", block: "center"})
-            requestRefs.current.project?.focus?.()
+        if (newRequestErrors.projectValue) {
+            requestRefs.current.projectValue?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.projectValue?.focus?.()
             return
         }
 
@@ -332,21 +372,21 @@ function RequestMaterialPage({ onBack, currentUser }) {
             return
         }
 
-        if (newRequestErrors.priority) {
-            requestRefs.current.priority?.scrollIntoView({ behavior: "smooth", block: "center"})
-            requestRefs.current.priority?.focus?.()
+        if (newRequestErrors.priorityValue) {
+            requestRefs.current.priorityValue?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.priorityValue?.focus?.()
             return
         }
 
-        if (newRequestErrors.sourceWarehouse) {
-            requestRefs.current.sourceWarehouse?.scrollIntoView({ behavior: "smooth", block: "center"})
-            requestRefs.current.sourceWarehouse?.focus?.()
+        if (newRequestErrors.sourceWarehouseValue) {
+            requestRefs.current.sourceWarehouseValue?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.sourceWarehouseValue?.focus?.()
             return
         }
 
-        if (newRequestErrors.deliveryLocation) {
-            requestRefs.current.deliveryLocation?.scrollIntoView({ behavior: "smooth", block: "center"})
-            requestRefs.current.deliveryLocation?.focus?.()
+        if (newRequestErrors.deliveryLocationText) {
+            requestRefs.current.deliveryLocationText?.scrollIntoView({ behavior: "smooth", block: "center"})
+            requestRefs.current.deliveryLocationText?.focus?.()
             return
         }
 
@@ -410,10 +450,10 @@ function RequestMaterialPage({ onBack, currentUser }) {
                             <label className="form-group">
                                 <span className="form-label">Location</span>
                                 <select
-                                    ref={(el) => (requestRefs.current.location) = el}
-                                    className={`form-input ${requestErrors.location ? "input-error": ""}`}
-                                    name="location"
-                                    value={requestForm.location}
+                                    ref={(el) => (requestRefs.current.locationValue) = el}
+                                    className={`form-input ${requestErrors.locationValue ? "input-error": ""}`}
+                                    name="locationValue"
+                                    value={requestForm.locationValue}
                                     onChange={handleRequestChange}
                                 >
                                     <option value="">Select location</option>
@@ -423,23 +463,23 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                         </option>
                                     ))}
                                 </select>
-                                {requestErrors.project && (
-                                    <span className="field-error">{requestErrors.location}</span>
+                                {requestErrors.locationValue && (
+                                    <span className="field-error">{requestErrors.locationValue}</span>
                                 )}
                             </label>
 
                             <label className="form-group">
                                 <span className="form-label">Project</span>
                                 <select
-                                    ref={(el) => (requestRefs.current.project) = el}
-                                    className={`form-input ${requestErrors.project ? "input-error": ""}`}
-                                    name="project"
-                                    value={requestForm.project}
+                                    ref={(el) => (requestRefs.current.projectValue) = el}
+                                    className={`form-input ${requestErrors.projectValue ? "input-error": ""}`}
+                                    name="projectValue"
+                                    value={requestForm.projectValue}
                                     onChange={handleRequestChange}
-                                    disabled={!requestForm.location}
+                                    disabled={!requestForm.locationValue}
                                 >
                                     <option value="">
-                                        {requestForm.location ? "Select project" : "Select location first"}
+                                        {requestForm.locationValue ? "Select project" : "Select location first"}
                                     </option>
                                     {projectOptions.map((project) => (
                                         <option key={project.value} value={project.value}>
@@ -447,8 +487,8 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                         </option>
                                     ))}
                                 </select>
-                                {requestErrors.project && (
-                                    <span className="field-error">{requestErrors.project}</span>
+                                {requestErrors.projectValue && (
+                                    <span className="field-error">{requestErrors.projectValue}</span>
                                 )}
                             </label>
 
@@ -470,10 +510,10 @@ function RequestMaterialPage({ onBack, currentUser }) {
                             <label className="form-group">
                                 <span className="form-label">Priority</span>
                                 <select 
-                                    ref={(el) => (requestRefs.current.priority) = el}
-                                    className={`form-input ${requestErrors.priority ? "input-error": ""}`}
-                                    name="priority"
-                                    value={requestForm.priority}
+                                    ref={(el) => (requestRefs.current.priorityValue) = el}
+                                    className={`form-input ${requestErrors.priorityValue ? "input-error": ""}`}
+                                    name="priorityValue"
+                                    value={requestForm.priorityValue}
                                     onChange={handleRequestChange}   
                                 >
                                     <option value="">Select Priority</option>
@@ -482,44 +522,45 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                     <option value="High">High</option>
                                     <option value="Urgent">Urgent</option>
                                 </select>
-                                {requestErrors.priority && (
-                                    <span className="field-error">{requestErrors.priority}</span>
+                                {requestErrors.priorityValue && (
+                                    <span className="field-error">{requestErrors.priorityValue}</span>
                                 )}
                             </label>
 
                             <label className="form-group">
                                 <span className="form-label">Source Warehouse</span>
                                 <select 
-                                    ref={(el) => (requestRefs.current.sourceWarehouse) = el}
-                                    className={`form-input ${requestErrors.sourceWarehouse ? "input-error": ""}`}
-                                    name="sourceWarehouse"
-                                    value={requestForm.sourceWarehouse}
+                                    ref={(el) => (requestRefs.current.sourceWarehouseValue) = el}
+                                    className={`form-input ${requestErrors.sourceWarehouseValue ? "input-error": ""}`}
+                                    name="sourceWarehouseValue"
+                                    value={requestForm.sourceWarehouseValue}
                                     onChange={handleRequestChange}   
                                 >
                                     <option value="">Select Warehouse</option>
                                     {warehouseOptions.map((warehouse) => (
-                                        <option key={warehouse} value={warehouse}>
-                                            {warehouse}
+                                        <option key={warehouse.value} value={warehouse.value}>
+                                            {warehouse.label}
                                         </option>
                                     ))}
                                 </select>
-                                {requestErrors.sourceWarehouse && (
-                                    <span className="field-error">{requestErrors.sourceWarehouse}</span>
+                                {requestErrors.sourceWarehouseValue && (
+                                    <span className="field-error">{requestErrors.sourceWarehouseValue}</span>
                                 )}
                             </label>
 
                             <label className="form-group">
                                 <span className="form-label">Requested Delivery Location</span>
                                 <input 
-                                    ref={(el) => (requestRefs.current.deliveryLocation) = el}
-                                    className={`form-input read-only-input ${requestErrors.deliveryLocation ? "input-error": ""}`}
+                                    ref={(el) => (requestRefs.current.deliveryLocationText) = el}
+                                    className={`form-input ${requestErrors.deliveryLocationText ? "input-error": ""}`}
                                     type="text"
-                                    name="deliveryLocation"
-                                    value={requestForm.deliveryLocation}
-                                    readOnly
+                                    name="deliveryLocationText"
+                                    value={requestForm.deliveryLocationText}
+                                    onChange={handleRequestChange}
+                                    placeholder="e.g. Loading Area, Dock 2, Trailer 1"
                                 />
-                                {requestErrors.deliveryLocation && (
-                                    <span className="field-error">{requestErrors.deliveryLocation}</span>
+                                {requestErrors.deliveryLocationText && (
+                                    <span className="field-error">{requestErrors.deliveryLocationText}</span>
                                 )}
                             </label>
                         </div>
@@ -532,7 +573,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
                         <div className="received-items-list">
                             {requestedItems.map((item, index) => {
-                                const inventoryOptions = getRequestableInventoryForWarehouse(requestForm.sourceWarehouse)
+                                const inventoryOptions = getRequestableInventoryForWarehouse(requestForm.sourceWarehouseValue)
                                 const selectedInventory = inventoryOptions.find(
                                     (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
                                 ) || null
@@ -575,10 +616,10 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                                     onChange={(e) =>
                                                         handleItemChange(item.id, "inventoryItemId", e.target.value)
                                                     }
-                                                    disabled={!requestForm.sourceWarehouse}
+                                                    disabled={!requestForm.sourceWarehouseValue}
                                                 >
                                                     <option value="">
-                                                        {requestForm.sourceWarehouse ? "Select Material" : "Select warehouse first"}
+                                                        {requestForm.sourceWarehouseValue ? "Select Material" : "Select warehouse first"}
                                                     </option>
                                                     {inventoryOptions
                                                         .filter((inventoryItem) => !selectedInventoryIds.includes(String(inventoryItem.id)))
@@ -665,7 +706,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                 className="secondary-button"
                                 type="button"
                                 onClick={handleAddItem}
-                                disabled={!requestForm.sourceWarehouse}
+                                disabled={!requestForm.sourceWarehouseValue}
                             >
                                 + Add Item
                             </button>

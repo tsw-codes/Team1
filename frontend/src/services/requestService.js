@@ -1,4 +1,4 @@
-import { mockRequests, pendingRequests, getRequestById } from "../data/mockRequests"
+import { mockRequests, getRequestById } from "../data/mockRequests"
 import { createAuditTimestamp } from "../utils/dateUtils"
 
 function generateRequestId() {
@@ -11,9 +11,27 @@ function generateRequestId() {
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-    const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
-    return `${prefix}-${nextNumber}`
+  return `${prefix}-${nextNumber}`
+}
+
+function normalizeRequest(record) {
+  return {
+    ...record,
+    statusValue: record.statusValue || "pending",
+    status: record.status || "Pending",
+    priorityValue: record.priorityValue || "",
+    priority: record.priority || "",
+    locationValue: record.locationValue || "",
+    location: record.location || "",
+    projectValue: record.projectValue || "",
+    project: record.project || "",
+    sourceWarehouseValue: record.sourceWarehouseValue || "",
+    sourceWarehouse: record.sourceWarehouse || "",
+    deliveryLocationText: record.deliveryLocationText || "",
+    items: Array.isArray(record.items) ? record.items : [],
+  }
 }
 
 export function getAllRequests() {
@@ -21,7 +39,7 @@ export function getAllRequests() {
 }
 
 export function getPendingRequests() {
-  return pendingRequests
+  return mockRequests.filter((request) => request.statusValue === "pending")
 }
 
 export function findRequestById(id) {
@@ -29,12 +47,11 @@ export function findRequestById(id) {
 }
 
 export function createRequest(newRequest) {
-  const requestWithId = {
+  const requestWithId = normalizeRequest({
     ...newRequest,
     id: generateRequestId(),
     createdAt: newRequest.createdAt || createAuditTimestamp(),
-    status: newRequest.status || "Pending",
-  }
+  })
 
   mockRequests.unshift(requestWithId)
   return requestWithId
@@ -44,11 +61,11 @@ export function updateRequest(id, updates) {
   const index = mockRequests.findIndex((request) => request.id === id)
 
   if (index === -1) return null
-  
-  mockRequests[index] = {
+
+  mockRequests[index] = normalizeRequest({
     ...mockRequests[index],
     ...updates,
-  }
+  })
 
   return mockRequests[index]
 }

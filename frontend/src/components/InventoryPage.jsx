@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
-import { getInventoryItems, getInventoryFilterOptions, getInventorySummary } from "../services/inventoryService"
+import { 
+    getInventoryItems, 
+    createInventoryAdjustment,
+    canAdjustInventoryItemForPermissions,
+} from "../services/inventoryService"
 
 function getStatusClass(status) {
     switch (status) {
@@ -122,7 +126,107 @@ function InventoryModal({
     )
 }
 
-function InventoryPage({ permissions = [], onBack }) {
+function AdjustInventoryModal({
+    item,
+    form,
+    error,
+    onClose,
+    onChange,
+    onSubmit
+}) {
+    if (!item) return null
+
+    return (
+        <div className="inventory-modal-overlay" onClick={onClose}>
+            <div className="inventory-modal-card" onClick={(e) => e.stopPropagation()}>
+                <div className="section-heading-row">
+                    <h2 className="section-title">Adjust Inventory</h2>
+                    <button className="text-button" onClick={onClose}>
+                        Close
+                    </button>
+                </div>
+
+                <div className="inventory-card-details">
+                    <div>
+                        <span className="detail-label">Material: </span>
+                        <span className="detail-value">{item.name}</span>
+                    </div>
+
+                    <div>
+                        <span className="detail-label">SKU: </span>
+                        <span className="detail-value">{item.sku}</span>
+                    </div>
+
+                    <div>
+                        <span className="detail-label">Current Quantity: </span>
+                        <span className="detail-value">{item.quantity} {item.unit}</span>
+                    </div>
+
+                    <form className="receive-form" onSubmit={onSubmit}>
+                        <label className="form-group">
+                            <span className="form-label">Adjustment Type</span>
+                            <select
+                                className="form-input"
+                                name="adjustmentType"
+                                value={form.adjustmentType}
+                                onChange={onChange}
+                            >
+                                <option value="">Select adjustment type</option>
+                                <option value="increase">Increase</option>
+                                <option value="decrease">Decrease</option>
+                                <option value="set">Set Quantity</option>
+                            </select>
+                        </label>
+
+                        <label className="form-group">
+                            <span className="form-label">
+                                {form.adjustmentType === "set" ? "New Quantity" : "Quantity Change"}
+                            </span>
+                            <input 
+                                className="form-input"
+                                type="number"
+                                min="0"
+                                name="quantityValue"
+                                value={form.quantityValue}
+                                onChange={onChange}
+                                placeholder="0"
+                            />
+                        </label>
+
+                        <label className="form-group">
+                            <span className="form-label">Reason</span>
+                            <textarea 
+                                className="form-textarea"
+                                name="reason"
+                                value={form.reason}
+                                onChange={onChange}
+                                placeholder="Enter adjustment reason"
+                            />
+                        </label>
+
+                        {error && <div className="login-error">{error}</div>}
+
+                        <div className="receive-actions">
+                            <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={onClose}
+                            >
+                                Cancel
+                            </button>
+
+                            <button className="primary-button" type="submit">
+                                Save Adjustment
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function InventoryPage({ permissions = [], currentUser, onBack }) {
     const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
 
     const [searchTerm, setSearchTerm] = useState("")
@@ -131,12 +235,35 @@ function InventoryPage({ permissions = [], onBack }) {
     const [statusFilter, setStatusFilter] = useState("All")
     const [selectedItem, setSelectedItem] = useState(null)
 
-    const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
-    const canAdjustInventory = hasPermission(permissions, "adjust_inventory")
+    const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false)
+    const [adjustForm, setAdjustForm] = useState({
+        adjustmentType: "",
+        quantityValue: "",
+        reason: "",
+    })
+    const [adjustError, setAdjustError] = useState("")
 
-    const inventoryData = useMemo(() => {return getInventoryItems()}, [])
-    const filterOptions = useMemo(() => {return getInventoryFilterOptions()}, [])
-    const summary = useMemo(() => {return getInventorySummary()}, [])
+    const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
+    const canAdjustSelectedItem = canAdjustInventoryItemForPermissions(selectedItem, permissions)
+
+    const [inventoryData, setInventoryData] = useState(() => [...getInventoryItems()])
+
+    const filterOptions = useMemo(() => {
+        return {
+            projects: ["All", ...new Set(inventoryData.map((item) => item.project))],
+            categories: ["All", ...new Set(inventoryData.map((item) => item.category))],
+            statuses: ["All", ...new Set(inventoryData.map((item) => item.status))],
+        }
+    }, [inventoryData])
+
+    const summary = useMemo(() => {
+        return {
+            totalItems: inventoryData.length,
+            lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
+            outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
+            inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
+        }
+    }, [inventoryData])
 
     const { projects, categories, statuses } = filterOptions
 
@@ -168,8 +295,76 @@ function InventoryPage({ permissions = [], onBack }) {
         return () => window.removeEventListener("resize", handleResize)
     }, [])
 
-    function handleAdjustInventory(){
-        alert("Adjust Inventory not implemented yet.")
+    function handleAdjustInventory() {
+        if (!canAdjustInventoryItemForPermissions(selectedItem, permissions)) {
+            return
+        }
+
+        setAdjustForm({
+            adjustmentType: "",
+            quantityValue: "",
+            reason: "",
+        })
+        setAdjustError("")
+        setIsAdjustModalOpen(true)
+    }
+
+    function handleAdjustFormChange(e) {
+        const { name, value } = e.target
+
+        setAdjustForm((prev) => ({
+            ...prev,
+            [name]: value,
+        }))
+ 
+        if (adjustError) {
+            setAdjustError("")
+        }
+    }
+
+    function handleSubmitAdjustment(e) {
+        e.preventDefault()
+
+        if (!selectedItem) return
+
+        const { adjustmentType, quantityValue, reason } = adjustForm
+
+        if (!adjustmentType) {
+            setAdjustError("Adjustment type is required.")
+            return
+        }
+
+        if (quantityValue === "" || Number(quantityValue) < 0) {
+            setAdjustError("Quantity must be 0 or greater.")
+            return
+        }
+
+        if (!reason.trim()) {
+            setAdjustError("Reason is required.")
+            return
+        }
+
+        const result = createInventoryAdjustment({
+            inventoryItemId: selectedItem.id,
+            adjustmentType,
+            quantityValue,
+            reason,
+            adjustedBy: currentUser?.username || "unknown",
+            permissions,
+        })
+
+        if (!result) {
+            setAdjustError("You are not allowed to adjust this inventory item.")
+            return
+        }
+
+        const refreshedInventory = [...getInventoryItems()]
+        setInventoryData(refreshedInventory)
+        setSelectedItem(
+            refreshedInventory.find((item) => String(item.id) === String(result.updatedItem.id)) || result.updatedItem
+        )
+        setAdjustError("")
+        setIsAdjustModalOpen(false)
     }
 
     return (
@@ -321,7 +516,7 @@ function InventoryPage({ permissions = [], onBack }) {
                                 onClose={() => setSelectedItem(null)}
                                 showClose={true}
                                 canViewMaterialCost={canViewMaterialCost}
-                                canAdjustInventory={canAdjustInventory}
+                                canAdjustInventory={canAdjustSelectedItem}
                                 onAdjustInventory={handleAdjustInventory}
                             />
                         ) : (
@@ -337,8 +532,22 @@ function InventoryPage({ permissions = [], onBack }) {
                         item={selectedItem}
                         onClose={() => setSelectedItem(null)}
                         canViewMaterialCost={canViewMaterialCost}
-                        canAdjustInventory={canAdjustInventory}
+                        canAdjustInventory={canAdjustSelectedItem}
                         onAdjustInventory={handleAdjustInventory}
+                    />
+                )}
+
+                {isAdjustModalOpen && selectedItem && (
+                    <AdjustInventoryModal 
+                        item={selectedItem}
+                        form={adjustForm}
+                        error={adjustError}
+                        onClose={() => {
+                            setIsAdjustModalOpen(false)
+                            setAdjustError("")
+                        }}
+                        onChange={handleAdjustFormChange}
+                        onSubmit={handleSubmitAdjustment}
                     />
                 )}
             </div>

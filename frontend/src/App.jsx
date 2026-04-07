@@ -340,6 +340,7 @@ function App() {
                       <PageTransition direction={navDirection}>
                         <InventoryPage 
                           permissions={permissions}
+                          currentUser={currentUser}
                           onBack={handleGoHome}
                         />
                       </PageTransition>

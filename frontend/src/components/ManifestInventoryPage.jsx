@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { getAllowedSourceLocations, getAllowedDestinationLocations } from "../data/mockLocations"
 import { createAuditTimestamp, formatAuditTimestamp } from "../utils/dateUtils"
 import { getPendingRequests, findRequestById } from "../services/requestService"
 import { getAllowedManifestModes, createManifest } from "../services/manifestService"
-import { getRequestableInventory, findRequestableInventoryItemById, getManualSourceInventory } from "../services/inventoryService"
+import { 
+    getRequestableInventory, 
+    findRequestableInventoryItemById, 
+    getManualSourceInventory, 
+} from "../services/inventoryService"
+import {
+    getSiteLocationOptions,
+    getWarehouseLocationOptions,
+    getLocationByValue,
+} from "../services/projectService"
 
 function buildManifestItemsFromRequest(request) {
     if (!request) return []
@@ -14,7 +22,7 @@ function buildManifestItemsFromRequest(request) {
         return {
             id: `${request.id}-${requestItem.id}`,
             inventoryItemId: requestItem.inventoryItemId,
-            manifestQuantity: Math.min(requestItem.requestedQuantity, inventoryItem?.quantity ?? 0).toString(),
+            manifestQuantity: Math.min(requestItem.requestedQuantity, inventoryItem?.quantity ?? 0),
         }
     })
 }
@@ -23,13 +31,15 @@ function createEmptyManualManifestItem() {
     return {
         id: `manual-${Date.now()}-${Math.random()}`,
         inventoryItemId: "",
-        manifestQuantity: "",
+        manifestQuantity: null,
     }
 }
 
 function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     const lineRefs = useRef({})
     const manifestRefs = useRef({})
+
+    const [manifestMode, setManifestMode] = useState("")
 
     const pendingRequestOptions = useMemo(() => {
         return getPendingRequests()
@@ -45,7 +55,45 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         return getAllowedManifestModes(permissions)
     }, [permissions])
 
-    const [manifestMode, setManifestMode] = useState("")
+    const warehouseLocationOptions = useMemo(() => {
+        return getWarehouseLocationOptions()
+    }, [])
+
+    const siteLocationOptions = useMemo(() => {
+        return getSiteLocationOptions()
+    }, [])
+
+    const allowedSourceLocationOptions = useMemo(() => {
+        if (manifestMode === "return") {
+            return siteLocationOptions
+        }
+
+        if (manifestMode === "warehouse_transfer") {
+            return warehouseLocationOptions
+        }
+
+        if (manifestMode === "outbound") {
+            return warehouseLocationOptions
+        }
+
+        return []
+    }, [manifestMode, siteLocationOptions, warehouseLocationOptions])
+
+    const allowedDestinationLocationOptions = useMemo(() => {
+        if (manifestMode === "return") {
+            return warehouseLocationOptions
+        }
+
+        if (manifestMode === "warehouse_transfer") {
+            return warehouseLocationOptions
+        }
+
+        if (manifestMode === "outbound") {
+            return siteLocationOptions
+        }
+
+        return []
+    }, [manifestMode, siteLocationOptions, warehouseLocationOptions])
 
     const [formError, setFormError] = useState("")
     const [manifestErrors, setManifestErrors] = useState({})
@@ -59,8 +107,16 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
         requestId: "",
         manifestDate: "",
-        sourceLocation: "",
-        destinationLocation: "",
+        
+        locationValue: "",
+        location: "",
+        projectValue: "",
+        project: "",
+
+        sourceLocationValue: "",
+        destinationLocationValue: "",
+        destinationDetail: "",
+        
         notes: "",
         
         finalizedBy: "",
@@ -72,6 +128,14 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     const selectedRequest = useMemo(() => {
         return findRequestById(manifestForm.requestId)
     }, [manifestForm.requestId])
+
+    const selectedSourceLocation = useMemo(() => {
+        return getLocationByValue(manifestForm.sourceLocationValue)
+    }, [manifestForm.sourceLocationValue])
+
+    const selectedDestinationLocation = useMemo(() => {
+        return getLocationByValue(manifestForm.destinationLocationValue)
+    }, [manifestForm.destinationLocationValue])
 
     useEffect(() => {
         if (allowedManifestModes.length === 1 && !manifestMode) {
@@ -92,8 +156,8 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         setManifestForm((prev) => ({
             ...prev,
             requestId: "",
-            sourceLocation: "",
-            destinationLocation: "",
+            sourceLocationValue: "",
+            destinationLocationValue: "",
             notes: "",
         }))
 
@@ -111,38 +175,61 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     function handleManifestChange(e) {
         const { name, value } = e.target
 
-        setManifestForm((prev) => {
-            const next = {
+        if (name === "requestId" && manifestMode === "outbound") {
+            resetManifestState()
+
+            const request = findRequestById(value)
+
+            setManifestForm((prev) => ({
                 ...prev,
-                [name]: value,
+                requestId: value,
+                
+                locationValue: request?.locationValue || "",
+                location: request?.location || "",
+                projectValue: request?.projectValue || "",
+                project: request?.project || "",
+
+                sourceLocationValue: request?.sourceWarehouseValue || "",
+                destinationLocationValue: request?.locationValue || "",
+                destinationDetail: request?.deliveryLocationText || "",
+
+                notes: request?.notes || "",
+            }))
+
+            setEditableManifestItems(buildManifestItemsFromRequest(request))
+
+            if (formError) {
+                setFormError("")
             }
 
-            if (name === "requestId" && manifestMode === "outbound") {
-                resetManifestState()
+            return
+        }
 
-                const request = findRequestById(value)
+        if (name === "sourceLocationValue" && manifestMode !== "outbound") {
+            resetManifestState()
 
-                next.sourceLocation = request ? "Warehouse Stock" : ""
-                next.destinationLocation = request?.deliveryLocation || ""
-                next.notes = request?.notes || ""
+            const inventory = getManualSourceInventory(manifestMode, value)
 
-                setEditableManifestItems(buildManifestItemsFromRequest(request))
+            setManifestForm((prev) => ({
+                ...prev,
+                sourceLocationValue: value,
+                destinationLocationValue: value === prev.destinationLocationValue ? "" : prev.destinationLocationValue,
+                destintationDetail: "",
+            }))
+
+            setManualSourceInventory(inventory)
+
+            if (formError) {
+                setFormError("")
             }
 
-            if (name === "sourceLocation" && manifestMode !== "outbound") {
-                resetManifestState()
+            return
+        }
 
-                const inventory = getManualSourceInventory(manifestMode, value)
-
-                if (value === manifestForm.destinationLocation) {
-                    next.destinationLocation = ""
-                }
-
-                setManualSourceInventory(inventory)
-            }
-
-            return next
-        }) 
+        setManifestForm((prev) => ({
+            ...prev,
+            [name]: value,
+        }))
 
         setManifestErrors((prev) => {
             if (!prev[name]) return prev
@@ -185,8 +272,8 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                         ...item,
                         inventoryItemId: value,
                         manifestQuantity: selectedInventory?.quantity
-                            ? String(selectedInventory.quantity)
-                            : "",
+                            ? Number(selectedInventory.quantity)
+                            : null,
                     }
                 }
 
@@ -240,8 +327,8 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             "manifestMode",
             "requestId",
             "manifestDate",
-            "sourceLocation",
-            "destinationLocation",
+            "sourceLocationValue",
+            "destinationLocationValue",
         ]
 
         for (const field of manifestErrorOrder) {
@@ -280,20 +367,20 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             newManifestErrors.manifestDate = "Manifest date is required."
         }
 
-        if (manifestMode !== "outbound" && !manifestForm.sourceLocation.trim()) {
-            newManifestErrors.sourceLocation = "Source Location is required."
+        if (manifestMode !== "outbound" && !manifestForm.sourceLocationValue.trim()) {
+            newManifestErrors.sourceLocationValue = "Source Location is required."
         }
 
-        if (manifestMode !== "outbound" && !manifestForm.destinationLocation.trim()) {
-            newManifestErrors.destinationLocation = "Destination Location is required."
+        if (manifestMode !== "outbound" && !manifestForm.destinationLocationValue.trim()) {
+            newManifestErrors.destinationLocationValue = "Destination Location is required."
         }
 
         if (
-            manifestForm.sourceLocation &&
-            manifestForm.destinationLocation &&
-            manifestForm.sourceLocation === manifestForm.destinationLocation
+            manifestForm.sourceLocationValue &&
+            manifestForm.destinationLocationValue &&
+            manifestForm.sourceLocationValue === manifestForm.destinationLocationValue
         ) {
-            newManifestErrors.destinationLocation = "Source and destination cannot be the same."
+            newManifestErrors.destinationLocationValue = "Source and destination cannot be the same."
         }
 
         if (manifestMode === "outbound" && !selectedRequest) {
@@ -339,7 +426,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                 }
             }
 
-            if (manifestItem.manifestQuantity === "") {
+            if (manifestItem.manifestQuantity === null || manifestItem.manifestQuantity === "") {
                 errors.manifestQuantity = "Manifest quantity is required."
             } else if (manifestQty < 0) {
                 errors.manifestQuantity = "Manifest quantity cannot be negative."
@@ -405,8 +492,10 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         const finalizedBy = currentUser?.username || "unknown"
 
         const newManifest = {
+            manifestTypeValue: manifestMode,
             manifestType: manifestMode,
-            status: "finalized",
+            statusValue: "finalized",
+            status: "Finalized",
 
             requestId: manifestForm.requestId,
             createdBy: manifestForm.createdBy,
@@ -414,11 +503,20 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
             manifestDate: manifestForm.manifestDate,
 
+            locationValue: manifestForm.locationValue,
+            location: manifestForm.location,
+            projectValue: manifestForm.projectValue,
+            project: manifestForm.project,
+
             finalizedBy,
             finalizedAt,
 
-            sourceLocation: manifestForm.sourceLocation,
-            destinationLocation: manifestForm.destinationLocation,
+            sourceLocationValue: manifestForm.sourceLocationValue,
+            sourceLocation: selectedSourceLocation?.label || "",
+
+            destinationLocationValue: manifestForm.destinationLocationValue,
+            destinationLocation: selectedDestinationLocation?.label || "",
+            destinationDetail: manifestForm.destinationDetail || "",
 
             notes: manifestForm.notes,
 
@@ -429,11 +527,11 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                 return {
                     id: item.id,
-                    inventoryItemId: item.inventoryItemId,
+                    inventoryItemId: Number(item.inventoryItemId),
                     name: inventoryItem?.name || "",
                     sku: inventoryItem?.sku || "",
                     unit: inventoryItem?.unit || "",
-                    manifestQuantity: item.manifestQuantity,
+                    manifestQuantity: Number(item.manifestQuantity || 0),
                 }
             }),
         }
@@ -617,11 +715,11 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     <label className="form-group">
                                         <span className="form-label">Source Location</span>
                                         <input 
-                                            ref={(el) => (manifestRefs.current.sourceLocation = el)}
+                                            ref={(el) => (manifestRefs.current.sourceLocationValue = el)}
                                             className="form-input read-only-input"
                                             type="text"
-                                            name="sourceLocation"
-                                            value={manifestForm.sourceLocation}
+                                            name="sourceLocationValue"
+                                            value={selectedSourceLocation?.label || ""}
                                             readOnly
                                         />
                                     </label>
@@ -629,58 +727,68 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     <label className="form-group receive-form-span-2">
                                         <span className="form-label">Destination Location</span>
                                         <input 
-                                            ref={(el) => (manifestRefs.current.destinationLocation = el)}
+                                            ref={(el) => (manifestRefs.current.destinationLocationValue = el)}
                                             className="form-input read-only-input"
                                             type="text"
-                                            name="destinationLocation"
-                                            value={manifestForm.destinationLocation}
+                                            name="destinationLocationValue"
+                                            value={selectedDestinationLocation?.label || ""}
                                             readOnly
                                         />
                                     </label>
-                            </>
+
+                                    <label className="form-group receive-form-span-2">
+                                        <span className="form-label">Destination Detail</span>
+                                        <input 
+                                            className="form-input read-only-input"
+                                            type="text"
+                                            value={manifestForm.destinationDetail || ""}
+                                            readOnly
+                                        />
+                                    </label>
+                                </>
                             ) : (
                                 <>
                                    <label className="form-group">
                                         <span className="form-label">Source Location</span>
                                         <select 
-                                            ref={(el) => (manifestRefs.current.sourceLocation = el)}
-                                            className={`form-input ${manifestErrors.sourceLocation ? "input-error" : ""}`}
-                                            name="sourceLocation"
-                                            value={manifestForm.sourceLocation}
+                                            ref={(el) => (manifestRefs.current.sourceLocationValue = el)}
+                                            className={`form-input ${manifestErrors.sourceLocationValue ? "input-error" : ""}`}
+                                            name="sourceLocationValue"
+                                            value={manifestForm.sourceLocationValue}
                                             onChange={handleManifestChange}
                                         >
                                             <option value="">Select source location</option>
-                                            {getAllowedSourceLocations(manifestMode).map((location) => (
-                                                <option key={location} value={location}>
-                                                    {location}
+                                            {allowedSourceLocationOptions.map((location) => (
+                                                <option key={location.value} value={location.value}>
+                                                    {location.label}
                                                 </option>
                                             ))}
                                         </select>
-                                        {manifestErrors.sourceLocation && (
-                                            <span className="field-error">{manifestErrors.sourceLocation}</span>
+                                        {manifestErrors.sourceLocationValue && (
+                                            <span className="field-error">{manifestErrors.sourceLocationValue}</span>
                                         )}
                                     </label>
 
                                     <label className="form-group receive-form-span-2">
                                         <span className="form-label">Destination Location</span>
                                         <select
-                                            ref={(el) => (manifestRefs.current.destinationLocation = el)}
-                                            className={`form-input ${manifestErrors.destinationLocation ? "input-error" : ""}`}
-                                            name="destinationLocation"
-                                            value={manifestForm.destinationLocation}
+                                            ref={(el) => (manifestRefs.current.destinationLocationValue = el)}
+                                            className={`form-input ${manifestErrors.destinationLocationValue ? "input-error" : ""}`}
+                                            name="destinationLocationValue"
+                                            value={manifestForm.destinationLocationValue}
                                             onChange={handleManifestChange}
                                         >
                                             <option value="">Select destination location</option>
-                                            {getAllowedDestinationLocations(manifestMode)
-                                                .filter((location) => location !== manifestForm.sourceLocation)
+                                            {allowedDestinationLocationOptions
+                                                .filter((location) => location.value !== manifestForm.sourceLocationValue)
                                                 .map((location) => (
-                                                    <option key={location} value={location}>
-                                                        {location}
+                                                    <option key={location.value} value={location.value}>
+                                                        {location.label}
                                                     </option>
                                                 ))}
                                         </select>
-                                        {manifestErrors.destinationLocation && (
-                                            <span className="field-error">{manifestErrors.destinationLocation}</span>
+                                        {manifestErrors.destinationLocationValue && (
+                                            <span className="field-error">{manifestErrors.destinationLocationValue}</span>
                                         )}
                                     </label> 
                                 </>
@@ -932,7 +1040,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                         className="secondary-button"
                                         type="button"
                                         onClick={handleAddManualManifestItem}
-                                        disabled={!manifestForm.sourceLocation}
+                                        disabled={!manifestForm.sourceLocationValue}
                                     >
                                         + Add Item
                                     </button>

@@ -120,6 +120,7 @@
 }
 
 .form-group {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
@@ -139,6 +140,24 @@
   background: lightgrey;
   color: var(--text);
   font: inherit;
+}
+
+.form-input[type="date"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.form-input,
+.form-textarea,
+.read-only-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .primary-button {
@@ -1030,9 +1049,14 @@
 }
 
 .receive-form-grid {
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
+}
+
+.receive-form-grid > * {
+  min-width: 0;
 }
 
 .receive-form-span-2 {

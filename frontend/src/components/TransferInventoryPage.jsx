@@ -3,7 +3,6 @@ import { createAuditTimestamp, formatAuditTimestamp } from "../utils/dateUtils"
 import { createTransfer, getTransfersForPermissions, updateTransfer } from "../services/transferService"
 import { getAvailableManifestsForTransfer } from "../services/manifestService"
 
-
 function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
     const transferRefs = useRef({})
     const itemFieldRefs = useRef({})
@@ -25,8 +24,11 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
     const isTransfer = activeRecordType === "transfer"
 
     const isShipping = isManifest
-    const isReceiving = isTransfer && activeRecord?.status === "in_transit"
-    const isFinalized = isTransfer && (activeRecord?.status === "completed" || activeRecord?.status === "exception")
+
+    const currentStatusValue = activeRecord?.statusValue || activeRecord?.status
+
+    const isReceiving = isTransfer && currentStatusValue === "in_transit"
+    const isFinalized = isTransfer && (currentStatusValue === "completed" || currentStatusValue === "exception")
 
     function resetTransferSelection() {
         setActiveRecord(null)
@@ -71,12 +73,12 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                 return
             }
 
-            const normalizedTransfer = transfer.status === "in_transit" 
+            const normalizedTransfer = (transfer.statusValue === "in_transit" || transfer.status === "In Transit") 
                 ? {
                     ...transfer,
                     items: transfer.items.map((item) => ({
                         ...item,
-                        receivedQuantity: item.receivedQuantity === "" ? item.shippedQuantity : item.receivedQuantity,
+                        receivedQuantity: (item.receivedQuantity === null || item.receivedQuantity === "") ? item.shippedQuantity : item.receivedQuantity,
                     })),
                 } : transfer
 
@@ -245,7 +247,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             newTransferErrors.receivedDate = "Received date is required."
         }
 
-        let hasShortage = false
+        let hasDiscrepancy = false
 
         activeRecord.items.forEach((item) => {
             const errors = {}
@@ -253,16 +255,14 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             const shippedQty = Number(item.shippedQuantity || 0)
             const receivedQty = Number(item.receivedQuantity)
 
-            if (item.receivedQuantity === "") {
+            if (item.receivedQuantity === null || item.receivedQuantity === "") {
                 errors.receivedQuantity = "Received quantity is required."
             } else if (receivedQty < 0) {
                 errors.receivedQuantity = "Received quantity cannot be negative."
-            } else if (receivedQty > shippedQty) {
-                errors.receivedQuantity = "Received quantity cannot exceed shipped quantity."
             }
 
-            if (item.receivedQuantity !== "" && receivedQty < shippedQty) {
-                hasShortage = true
+            if (item.receivedQuantity !== null && item.receivedQuantity !== "" && receivedQty !== shippedQty) {
+                hasDiscrepancy = true
             }
 
             if (Object.keys(errors).length > 0) {
@@ -270,8 +270,8 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             }
         })
 
-        if (hasShortage && !activeRecord.exceptionNotes.trim()) {
-            newTransferErrors.exceptionNotes = "Exception notes are required when received quantities are short."
+        if (hasDiscrepancy && !activeRecord.exceptionNotes.trim()) {
+            newTransferErrors.exceptionNotes = "Exception notes are required when received quantities do not match shipped quantities."
         }
 
         setTransferErrors(newTransferErrors)
@@ -302,30 +302,45 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
         const newTransfer = {
             manifestId: activeRecord.id,
-            transferType: activeRecord.manifestType,
-            status: "in_transit",
+
+            transferTypeValue: activeRecord.manifestTypeValue || activeRecord.manifestType,
+            transferType: activeRecord.manifestType || activeRecord.manifestTypeValue,
+
+            statusValue: "in_transit",
+            status: "In_transit",
 
             createdBy: activeRecord.finalizedBy || activeRecord.createdBy || "unknown",
+            createdAt: createAuditTimestamp(),
             manifestDate: activeRecord.manifestDate,
 
             shippedDate: activeRecord.shippedDate,
             shippedAt: createAuditTimestamp(),
             shippedBy: currentUser?.username || "unknown",
 
-            receivedDate: "",
-            receivedAt: "",
-            receivedBy: "",
+            receivedDate: null,
+            receivedAt: null,
+            receivedBy: null,
 
-            sourceLocation: activeRecord.sourceLocation,
-            destinationLocation: activeRecord.destinationLocation,
+            locationValue: activeRecord.locationValue || null,
+            location: activeRecord.location || "",
+            projectValue: activeRecord.projectValue || null,
+            project: activeRecord.project || "",
+
+            sourceLocationValue: activeRecord.sourceLocationValue || null,
+            sourceLocation: activeRecord.sourceLocation || "",
+
+            destinationLocationValue: activeRecord.destinationLocationValue || null,
+            destinationLocation: activeRecord.destinationLocation || "",
+            destinationDetail: activeRecord.destinationDetail || "",
 
             notes: activeRecord.notes || "",
             exceptionNotes: "",
 
             items: activeRecord.items.map((item) => ({
                 ...item,
-                shippedQuantity: item.manifestQuantity,
-                receivedQuantity: item.manifestQuantity,
+                manifestQuantity: Number(item.manifestQuantity || 0),
+                shippedQuantity: Number(item.manifestQuantity || 0),
+                receivedQuantity: Number(item.manifestQuantity || 0),
                 varianceReason: "",
             })),
         }
@@ -346,12 +361,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         const isValid = validateReceipt()
         if(!isValid) return
 
-        const hasShortage = activeRecord.items.some(
-            (item) => Number(item.receivedQuantity || 0) < Number(item.shippedQuantity || 0)
+        const hasDiscrepancy = activeRecord.items.some(
+            (item) => Number(item.receivedQuantity || 0) !== Number(item.shippedQuantity || 0)
         )
 
         const updatedTransfer = updateTransfer(activeRecord.id, {
-            status: hasShortage ? "exception" : "completed",
+            statusValue: hasDiscrepancy ? "exception" : "completed",
+            status: hasDiscrepancy ? "Exception" : "Completed",
             receivedBy: currentUser?.username || "unknown",
             receivedAt: createAuditTimestamp(),
             receivedDate: activeRecord.receivedDate,
@@ -469,7 +485,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                     {availableTransfers.map((transfer) => (
                                         <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                            {transfer.id} - ({getStatusLabel(transfer.status)})
+                                            {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
                                         </option>
                                     ))}
                                 </select>
@@ -532,7 +548,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                 {availableTransfers.map((transfer) => (
                                     <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                        {transfer.id} - ({getStatusLabel(transfer.status)})
+                                        {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
                                     </option>
                                 ))}
                             </select>
@@ -542,8 +558,8 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                     <section className="page-section manifest-form-section">
                         <div className="section-heading-row">
                             <h2 className="section-title">Transfer Information</h2>
-                            <span className={`status-badge ${getStatusClass(isManifest ? "ready_to_ship" : activeRecord.status)}`}>
-                                {getStatusLabel(isManifest ? "ready_to_ship" : activeRecord.status)}
+                            <span className={`status-badge ${getStatusClass(isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status))}`}>
+                                {getStatusLabel(isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status))}
                             </span>
                         </div>
 
@@ -685,6 +701,18 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     readOnly
                                 />
                             </label>
+
+                            {activeRecord.destinationDetail ? (
+                                <label className="form-group">
+                                    <span className="form-label">Destination Detail</span>
+                                    <input 
+                                        className="form-input read-only-input"
+                                        type="text"
+                                        value={activeRecord.destinationDetail}
+                                        readOnly
+                                    />
+                                </label>
+                            ) : null}
                         </div>
                     </section>
 
@@ -697,17 +725,22 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                             {activeRecord.items.map((item, index) => {
                                 const shippedQty = Number(item.shippedQuantity || 0)
                                 const receivedQty = item.receivedQuantity === "" ? "" : Number(item.receivedQuantity)
-                                const isShort = item.receivedQuantity !== "" && receivedQty < shippedQty
+                                const hasDiscrepancy = 
+                                    item.receivedQuantity !== "" &&
+                                    item.receivedQuantity !== null && 
+                                    receivedQty !== shippedQty
 
                                 return (
                                     <div 
-                                        className={`received-item-card ${isShort ? "manifest-item-short": ""}`}
+                                        className={`received-item-card ${hasDiscrepancy ? "manifest-item-short": ""}`}
                                         key={item.id}
                                     >
                                         <div className="section-heading-row">
                                             <h3 className="received-item-title">Item {index + 1}</h3>
-                                            {isShort && (
-                                                <span className="manifest-warning-badge">Short Received</span>
+                                            {hasDiscrepancy && (
+                                                <span className="manifest-warning-badge">
+                                                    {receivedQty < shippedQty ? "Short Received" : "Over Received"}
+                                                </span>
                                             )}
                                         </div>
 
@@ -821,7 +854,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     name="shippedDate"
                                     value={activeRecord.shippedDate || ""}
                                     onChange={handleTransferChange}
-                                    readOnly={!isShipping}
+                                    disabled={!isShipping}
                                 />
                                 {transferErrors.shippedDate && (
                                     <span className="field-error">{transferErrors.shippedDate}</span>
@@ -875,7 +908,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                 value={activeRecord.exceptionNotes}
                                 onChange={handleTransferChange}
                                 readOnly={!isTransfer || isFinalized}
-                                placeholder="Required if any received quantity is short."
+                                placeholder="Required if any received quantity does not match the shipped quantity."
                             />
                             {transferErrors.exceptionNotes && (
                                 <span className="field-error">{transferErrors.exceptionNotes}</span>
