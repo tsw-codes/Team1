@@ -6,6 +6,7 @@ import {
     createInventoryAdjustment,
     canAdjustInventoryItemForPermissions,
 } from "../services/inventoryService"
+import FilterHeader from "./FilterHeader"
 
 function getStatusClass(status) {
     switch (status) {
@@ -229,6 +230,8 @@ function AdjustInventoryModal({
 function InventoryPage({ permissions = [], currentUser, onBack }) {
     const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
 
+    const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 900)
+
     const [searchTerm, setSearchTerm] = useState("")
     const [projectFilter, setProjectFilter] = useState("All")
     const [categoryFilter, setCategoryFilter] = useState("All")
@@ -285,6 +288,15 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
         })
     }, [inventoryData, searchTerm, projectFilter, categoryFilter, statusFilter])
 
+    const filteredCost = useMemo(() => {
+        if (!canViewMaterialCost) return 0
+
+        return filteredItems.reduce(
+            (sum, item) => sum + Number(item.totalCost || 0),
+            0
+        )
+    }, [filteredItems, canViewMaterialCost])
+
     useEffect(() => {
         function handleResize() {
             setIsMobile(window.innerWidth <= 900)
@@ -294,6 +306,13 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
         return () => window.removeEventListener("resize", handleResize)
     }, [])
+
+    function handleClearFilters() {
+        setSearchTerm("")
+        setProjectFilter("All")
+        setCategoryFilter("All")
+        setStatusFilter("All")
+    }
 
     function handleAdjustInventory() {
         if (!canAdjustInventoryItemForPermissions(selectedItem, permissions)) {
@@ -370,51 +389,16 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     return (
         <div className="inventory-page">
             <div className="inventory-page-scroll">
-                <section className="page-section inventory-header">
-                    <div className="inventory-header-bar">
-                        <button className="text-button back-button" onClick={onBack}>
-                        ← Home
-                        </button>
-
-                        <h1 className="page-title inventory-title">Inventory</h1>
-                    </div>
-
-                    <p className="page-subtitle">
-                        View material quantities, locations, and current status across projects.
-                    </p>
-                </section>
-
-                <section className="inventory-summary-grid">
-                    <div className="summary-card">
-                        <div className="summary-row">
-                            <span className="summary-label">Total Items: </span>
-                            <span className="summary-value">{summary.totalItems}</span>
-                        </div>
-                    </div>
-
-                    <div className="summary-card">
-                        <div className="summary-row">
-                            <span className="summary-label">Low Stock: </span>
-                            <span className="summary-value">{summary.lowStock}</span>
-                        </div>
-                    </div>
-
-                    <div className="summary-card">
-                        <div className="summary-row">
-                            <span className="summary-label">In Transit: </span>
-                            <span className="summary-value">{summary.inTransit}</span>
-                        </div>
-                    </div>
-
-                    <div className="summary-card">
-                        <div className="summary-row">
-                            <span className="summary-label">Out of Stock</span>
-                            <span className="summary-value">{summary.outOfStock}</span>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="page-section inventory-filters">
+                <FilterHeader
+                    title="Inventory"
+                    subtitle="View material quantities, locations, and current status across projects."
+                    onBack={onBack}
+                    filtersOpen={filtersOpen}
+                    onToggleFilters={() => setFiltersOpen((prev) => !prev)}
+                    leftMetaLabel={canViewMaterialCost ? "Cost:" : ""}
+                    leftMetaValue={canViewMaterialCost ? formatCurrency(filteredCost) : ""}
+                    rightMetaText={`${filteredItems.length} item${filteredItems.length !== 1 ? "s" : ""}`}
+                >
                     <input 
                         type="text"
                         className="inventory-search"
@@ -448,15 +432,50 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
                             ))}
                         </select>
                     </div>
+
+                    <div className="filter-actions">
+                        <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={handleClearFilters}
+                        >
+                            Clear Filters
+                        </button>
+                    </div>
+                </FilterHeader>
+
+                <section className="inventory-summary-grid">
+                    <div className="summary-card">
+                        <div className="summary-row">
+                            <span className="summary-label">Total Items: </span>
+                            <span className="summary-value">{summary.totalItems}</span>
+                        </div>
+                    </div>
+
+                    <div className="summary-card">
+                        <div className="summary-row">
+                            <span className="summary-label">Low Stock: </span>
+                            <span className="summary-value">{summary.lowStock}</span>
+                        </div>
+                    </div>
+
+                    <div className="summary-card">
+                        <div className="summary-row">
+                            <span className="summary-label">In Transit: </span>
+                            <span className="summary-value">{summary.inTransit}</span>
+                        </div>
+                    </div>
+
+                    <div className="summary-card">
+                        <div className="summary-row">
+                            <span className="summary-label">Out of Stock</span>
+                            <span className="summary-value">{summary.outOfStock}</span>
+                        </div>
+                    </div>
                 </section>
 
                 <section className="inventory-content">
                     <div className="inventory-results">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Inventory Results</h2>
-                            <p className="results-count">{filteredItems.length} items</p>
-                        </div>
-
                         <div className="inventory-card-list">
                             {filteredItems.map((item) => (
                                 <div className="inventory-card" key={item.id}>

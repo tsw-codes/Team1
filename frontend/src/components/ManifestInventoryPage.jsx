@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createAuditTimestamp, formatAuditTimestamp } from "../utils/dateUtils"
-import { getPendingRequests, findRequestById } from "../services/requestService"
+import { getApprovedRequests, findRequestById } from "../services/requestService"
 import { getAllowedManifestModes, createManifest } from "../services/manifestService"
 import { 
     getRequestableInventory, 
@@ -12,6 +12,8 @@ import {
     getWarehouseLocationOptions,
     getLocationByValue,
 } from "../services/projectService"
+import Toast from "./Toast"
+import InfoHeader from "./InfoHeader"
 
 function buildManifestItemsFromRequest(request) {
     if (!request) return []
@@ -39,10 +41,14 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     const lineRefs = useRef({})
     const manifestRefs = useRef({})
 
+    const [infoOpen, setInfoOpen] = useState(() => window.innerWidth > 900)
+
+    const [toast, setToast] = useState({ message: "", type: "success" })
+
     const [manifestMode, setManifestMode] = useState("")
 
-    const pendingRequestOptions = useMemo(() => {
-        return getPendingRequests()
+    const approvedRequestOptions = useMemo(() => {
+        return getApprovedRequests()
     }, [])
 
     const requestableInventoryItems = useMemo(() => {
@@ -106,6 +112,10 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         createdAt: createAuditTimestamp(),
 
         requestId: "",
+        requestedBy: "",
+        approvedBy: "",
+        approvedAt: null,
+
         manifestDate: "",
         
         locationValue: "",
@@ -156,13 +166,30 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         setManifestForm((prev) => ({
             ...prev,
             requestId: "",
+            requestedBy: "",
+            approvedBy: "",
+            approvedAt: null,
+            locationValue: "",
+            location: "",
+            projectValue: "",
+            project: "",
             sourceLocationValue: "",
             destinationLocationValue: "",
+            destinationDetail: "",
             notes: "",
         }))
 
         previousManifestMode.current = manifestMode
     }, [manifestMode])
+
+    function showToast(message, type = "success") {
+        setToast({ message, type })
+
+        window.clearTimeout(showToast.timeoutId)
+        showToast.timeoutId = window.setTimeout(() => {
+            setToast({ message: "", type: "success" })
+        }, 3000)
+    }
 
     function resetManifestState() {
         setEditableManifestItems([])
@@ -183,6 +210,9 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             setManifestForm((prev) => ({
                 ...prev,
                 requestId: value,
+                requestedBy: request?.requestedBy || "",
+                approvedBy: request?.approvedBy || "",
+                approvedAt: request?.approvedAt || null,
                 
                 locationValue: request?.locationValue || "",
                 location: request?.location || "",
@@ -212,9 +242,13 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
             setManifestForm((prev) => ({
                 ...prev,
+                requestId: "",
+                requestedBy: "",
+                approvedBy: "",
+                approvedAt: null,
                 sourceLocationValue: value,
                 destinationLocationValue: value === prev.destinationLocationValue ? "" : prev.destinationLocationValue,
-                destintationDetail: "",
+                destinationDetail: "",
             }))
 
             setManualSourceInventory(inventory)
@@ -479,7 +513,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     }
 
     function handleSaveDraft() {
-        alert("Save Draft not yet implemented.")
+        showToast("Save Draft not yet implemented", "error")
     }
 
     function handleFinalizeManifest(e) {
@@ -498,6 +532,10 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             status: "Finalized",
 
             requestId: manifestForm.requestId,
+            requestedBy: manifestForm.requestedBy,
+            approvedBy: manifestForm.approvedBy,
+            approvedAt: manifestForm.approvedAt,
+
             createdBy: manifestForm.createdBy,
             createdAt: manifestForm.createdAt,
 
@@ -544,7 +582,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
             finalizedAt: createdManifest.finalizedAt,
         }))
 
-        alert(`Manifest ${createdManifest.id} finalized.`)
+        showToast(`Manifest ${createdManifest.id} finalized.`)
     }
 
     function getRequestedQuantity(inventoryItemId) {
@@ -557,23 +595,14 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         return (
             <div className="manifest-page">
                 <div className="manifest-page-scroll">
-                    <section className="page-section manifest-header">
-                        <div className="manifest-header-bar">
-                            <button
-                                className="text-button back-button"
-                                type="button"
-                                onClick={onBack}
-                            >
-                                ← Home
-                            </button>
-
-                            <h1 className="page-title manifest-title">Manifest Inventory</h1>
-                        </div>
-
-                        <p className="page-subtitle">
-                            Build a manifest from a request, confirm available quantities, and prepare inventory for transfer.
-                        </p>
-                    </section>
+                    <InfoHeader
+                        title="Manifest Inventory"
+                        subtitle="Build a manifest from a request, confirm available quantities, and prepare inventory for transfer."
+                        onBack={onBack}
+                        infoOpen={infoOpen}
+                        onToggleInfo={() => setInfoOpen((prev) => !prev)}
+                        countText="0 items"
+                    />
 
                     <section className="page-section manifest-form-section">
                         <div className="manifest-empty-state">
@@ -586,259 +615,420 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     }
 
     return (
-        <div className="manifest-page">
-            <div className="manifest-page-scroll">
-                <form className="manifest-form" onSubmit={handleFinalizeManifest}>
-                    <section className="page-section manifest-header">
-                        <div className="manifest-header-bar">
-                            <button
-                                className="text-button back-button"
-                                type="button"
-                                onClick={onBack}
-                            >
-                                ← Home
-                            </button>
+        <>
+            <div className="manifest-page">
+                <div className="manifest-page-scroll">
+                    <form className="manifest-form" onSubmit={handleFinalizeManifest}>
+                        <InfoHeader
+                            title="Manifest Inventory"
+                            subtitle="Build a manifest from a request, confirm available quantities, and prepare inventory for transfer."
+                            onBack={onBack}
+                            infoOpen={infoOpen}
+                            onToggleInfo={() => setInfoOpen((prev) => !prev)}
+                            countText={`${editableManifestItems.length} item${editableManifestItems.length !== 1 ? "s" : ""}`}
+                        />
 
-                            <h1 className="page-title manifest-title">Manifest Inventory</h1>
-                        </div>
+                        <section className="page-section manifest-form-section">
+                            <div className="section-heading-row">
+                                <h2 className="section-title">Manifest Information</h2>
+                            </div>
 
-                        <p className="page-subtitle">
-                            Build a manifest from a request, confirm available quantities, and prepare inventory for transfer.
-                        </p>
-                    </section>
-
-                    <section className="page-section manifest-form-section">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Manifest Information</h2>
-                        </div>
-
-                        {allowedManifestModes.length > 1 && (
-                            <label className="form-group">
-                                <span className="form-label">Manifest Type</span>
-                                <select
-                                    ref={(el) => (manifestRefs.current.manifestMode = el)}
-                                    className={`form-input ${manifestErrors.manifestMode ? "input-error" : ""}`}
-                                    value={manifestMode}
-                                    onChange={(e) => setManifestMode(e.target.value)}
-                                >
-                                    <option value="">Select manifest type</option>
-                                    {allowedManifestModes.includes("outbound") && (
-                                        <option value="outbound">Outbound to Job Site</option>
-                                    )}
-                                    {allowedManifestModes.includes("return") && (
-                                        <option value="return">Return to Warehouse</option>
-                                    )}
-                                    {allowedManifestModes.includes("warehouse_transfer") && (
-                                        <option value="warehouse_transfer">Warehouse to Warehouse</option>
-                                    )}
-                                </select>
-                                {manifestErrors.manifestMode && (
-                                    <span className="field-error">{manifestErrors.manifestMode}</span>
-                                )}
-                            </label>
-                        )}
-
-                        <div className="receive-form-grid">
-                            <label className="form-group">
-                                <span className="form-label">Created By</span>
-                                <input 
-                                    className="form-input read-only-input"
-                                    type="text"
-                                    name="createdBy"
-                                    value={manifestForm.createdBy}
-                                    readOnly
-                                />
-                            </label>
-
-                            {manifestMode ==="outbound" && (
+                            {allowedManifestModes.length > 1 && (
                                 <label className="form-group">
-                                    <span className="form-label">Request</span>
+                                    <span className="form-label">Manifest Type</span>
                                     <select
-                                        ref={(el) => (manifestRefs.current.requestId = el)}
-                                        id="manifest-requestId"
-                                        className={`form-input ${manifestErrors.requestId ? "input-error": ""}`}
-                                        name="requestId"
-                                        value={manifestForm.requestId}
-                                        onChange={handleManifestChange}
+                                        ref={(el) => (manifestRefs.current.manifestMode = el)}
+                                        className={`form-input ${manifestErrors.manifestMode ? "input-error" : ""}`}
+                                        value={manifestMode}
+                                        onChange={(e) => setManifestMode(e.target.value)}
                                     >
-                                        <option value="">Select request</option>
-                                        {pendingRequestOptions.map((request) => (
-                                            <option key={request.id} value={request.id}>
-                                                {request.id} - {request.project} ({request.priority})
-                                            </option>
-                                        ))}
+                                        <option value="">Select manifest type</option>
+                                        {allowedManifestModes.includes("outbound") && (
+                                            <option value="outbound">Outbound to Job Site</option>
+                                        )}
+                                        {allowedManifestModes.includes("return") && (
+                                            <option value="return">Return to Warehouse</option>
+                                        )}
+                                        {allowedManifestModes.includes("warehouse_transfer") && (
+                                            <option value="warehouse_transfer">Warehouse to Warehouse</option>
+                                        )}
                                     </select>
-                                    {manifestErrors.requestId && (
-                                        <span className="field-error">{manifestErrors.requestId}</span>
+                                    {manifestErrors.manifestMode && (
+                                        <span className="field-error">{manifestErrors.manifestMode}</span>
                                     )}
                                 </label>
                             )}
 
-                            <label className="form-group">
-                                <span className="form-label">Manifest Date</span>
-                                <input
-                                    ref={(el) => (manifestRefs.current.manifestDate = el)}
-                                    id="manifest-manifestDate"
-                                    className={`form-input ${manifestErrors.manifestDate ? "input-error": ""}`}
-                                    type="date"
-                                    name="manifestDate"
-                                    value={manifestForm.manifestDate}
-                                    onChange={handleManifestChange}
-                                />
-                                {manifestErrors.manifestDate && (
-                                    <span className="field-error">{manifestErrors.manifestDate}</span>
-                                )}
-                            </label>
+                            <div className="receive-form-grid">
+                                <label className="form-group">
+                                    <span className="form-label">Created By</span>
+                                    <input 
+                                        className="form-input read-only-input"
+                                        type="text"
+                                        name="createdBy"
+                                        value={manifestForm.createdBy}
+                                        readOnly
+                                    />
+                                </label>
 
-                            <label className="form-group">
-                                <span className="form-label">Finalized By</span>
-                                <input
-                                    className="form-input read-only-input"
-                                    type="text"
-                                    value={manifestForm.finalizedBy || ""}
-                                    readOnly
-                                />
-                            </label>
-
-                            <label className="form-group">
-                                <span className="form-label">Finalized At</span>
-                                <input
-                                    className="form-input read-only-input"
-                                    type="text"
-                                    value={formatAuditTimestamp(manifestForm.finalizedAt)}
-                                    readOnly
-                                />
-                            </label>
-
-                            {manifestMode === "outbound" ? (
-                                <>
+                                {manifestMode ==="outbound" && (
                                     <label className="form-group">
-                                        <span className="form-label">Source Location</span>
-                                        <input 
-                                            ref={(el) => (manifestRefs.current.sourceLocationValue = el)}
-                                            className="form-input read-only-input"
-                                            type="text"
-                                            name="sourceLocationValue"
-                                            value={selectedSourceLocation?.label || ""}
-                                            readOnly
-                                        />
-                                    </label>
-
-                                    <label className="form-group receive-form-span-2">
-                                        <span className="form-label">Destination Location</span>
-                                        <input 
-                                            ref={(el) => (manifestRefs.current.destinationLocationValue = el)}
-                                            className="form-input read-only-input"
-                                            type="text"
-                                            name="destinationLocationValue"
-                                            value={selectedDestinationLocation?.label || ""}
-                                            readOnly
-                                        />
-                                    </label>
-
-                                    <label className="form-group receive-form-span-2">
-                                        <span className="form-label">Destination Detail</span>
-                                        <input 
-                                            className="form-input read-only-input"
-                                            type="text"
-                                            value={manifestForm.destinationDetail || ""}
-                                            readOnly
-                                        />
-                                    </label>
-                                </>
-                            ) : (
-                                <>
-                                   <label className="form-group">
-                                        <span className="form-label">Source Location</span>
-                                        <select 
-                                            ref={(el) => (manifestRefs.current.sourceLocationValue = el)}
-                                            className={`form-input ${manifestErrors.sourceLocationValue ? "input-error" : ""}`}
-                                            name="sourceLocationValue"
-                                            value={manifestForm.sourceLocationValue}
+                                        <span className="form-label">Request</span>
+                                        <select
+                                            ref={(el) => (manifestRefs.current.requestId = el)}
+                                            id="manifest-requestId"
+                                            className={`form-input ${manifestErrors.requestId ? "input-error": ""}`}
+                                            name="requestId"
+                                            value={manifestForm.requestId}
                                             onChange={handleManifestChange}
                                         >
-                                            <option value="">Select source location</option>
-                                            {allowedSourceLocationOptions.map((location) => (
-                                                <option key={location.value} value={location.value}>
-                                                    {location.label}
+                                            <option value="">Select approved request</option>
+                                            {approvedRequestOptions.map((request) => (
+                                                <option key={request.id} value={request.id}>
+                                                    {request.id} - {request.project} ({request.priority})
                                                 </option>
                                             ))}
                                         </select>
-                                        {manifestErrors.sourceLocationValue && (
-                                            <span className="field-error">{manifestErrors.sourceLocationValue}</span>
+                                        {manifestErrors.requestId && (
+                                            <span className="field-error">{manifestErrors.requestId}</span>
                                         )}
                                     </label>
+                                )}
 
-                                    <label className="form-group receive-form-span-2">
-                                        <span className="form-label">Destination Location</span>
-                                        <select
-                                            ref={(el) => (manifestRefs.current.destinationLocationValue = el)}
-                                            className={`form-input ${manifestErrors.destinationLocationValue ? "input-error" : ""}`}
-                                            name="destinationLocationValue"
-                                            value={manifestForm.destinationLocationValue}
-                                            onChange={handleManifestChange}
-                                        >
-                                            <option value="">Select destination location</option>
-                                            {allowedDestinationLocationOptions
-                                                .filter((location) => location.value !== manifestForm.sourceLocationValue)
-                                                .map((location) => (
+                                {manifestMode === "outbound" && manifestForm.requestId && (
+                                    <>
+                                        <label className="form-group">
+                                            <span className="form-label">Requested By</span>
+                                            <input 
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                value={manifestForm.requestedBy || ""}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        <label className="form-group">
+                                            <span className="form-label">Approved By</span>
+                                            <input 
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                value={manifestForm.approvedBy || ""}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        <label className="form-group">
+                                            <span className="form-label">Approved At</span>
+                                            <input 
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                value={formatAuditTimestamp(manifestForm.approvedAt)}
+                                                readOnly
+                                            />
+                                        </label>
+                                    </>
+                                )}
+
+                                <label className="form-group">
+                                    <span className="form-label">Manifest Date</span>
+                                    <input
+                                        ref={(el) => (manifestRefs.current.manifestDate = el)}
+                                        id="manifest-manifestDate"
+                                        className={`form-input ${manifestErrors.manifestDate ? "input-error": ""}`}
+                                        type="date"
+                                        name="manifestDate"
+                                        value={manifestForm.manifestDate}
+                                        onChange={handleManifestChange}
+                                    />
+                                    {manifestErrors.manifestDate && (
+                                        <span className="field-error">{manifestErrors.manifestDate}</span>
+                                    )}
+                                </label>
+
+                                <label className="form-group">
+                                    <span className="form-label">Finalized By</span>
+                                    <input
+                                        className="form-input read-only-input"
+                                        type="text"
+                                        value={manifestForm.finalizedBy || ""}
+                                        readOnly
+                                    />
+                                </label>
+
+                                <label className="form-group">
+                                    <span className="form-label">Finalized At</span>
+                                    <input
+                                        className="form-input read-only-input"
+                                        type="text"
+                                        value={formatAuditTimestamp(manifestForm.finalizedAt)}
+                                        readOnly
+                                    />
+                                </label>
+
+                                {manifestMode === "outbound" ? (
+                                    <>
+                                        <label className="form-group">
+                                            <span className="form-label">Source Location</span>
+                                            <input 
+                                                ref={(el) => (manifestRefs.current.sourceLocationValue = el)}
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                name="sourceLocationValue"
+                                                value={selectedSourceLocation?.label || ""}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        <label className="form-group receive-form-span-2">
+                                            <span className="form-label">Destination Location</span>
+                                            <input 
+                                                ref={(el) => (manifestRefs.current.destinationLocationValue = el)}
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                name="destinationLocationValue"
+                                                value={selectedDestinationLocation?.label || ""}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        <label className="form-group receive-form-span-2">
+                                            <span className="form-label">Destination Detail</span>
+                                            <input 
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                value={manifestForm.destinationDetail || ""}
+                                                readOnly
+                                            />
+                                        </label>
+                                    </>
+                                ) : (
+                                    <>
+                                    <label className="form-group">
+                                            <span className="form-label">Source Location</span>
+                                            <select 
+                                                ref={(el) => (manifestRefs.current.sourceLocationValue = el)}
+                                                className={`form-input ${manifestErrors.sourceLocationValue ? "input-error" : ""}`}
+                                                name="sourceLocationValue"
+                                                value={manifestForm.sourceLocationValue}
+                                                onChange={handleManifestChange}
+                                            >
+                                                <option value="">Select source location</option>
+                                                {allowedSourceLocationOptions.map((location) => (
                                                     <option key={location.value} value={location.value}>
                                                         {location.label}
                                                     </option>
                                                 ))}
-                                        </select>
-                                        {manifestErrors.destinationLocationValue && (
-                                            <span className="field-error">{manifestErrors.destinationLocationValue}</span>
-                                        )}
-                                    </label> 
-                                </>
-                            )}
-                        </div>
-                    </section>
+                                            </select>
+                                            {manifestErrors.sourceLocationValue && (
+                                                <span className="field-error">{manifestErrors.sourceLocationValue}</span>
+                                            )}
+                                        </label>
 
-                    <section className="page-section manifest-form-section">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Manifest Items</h2>
-                        </div>
+                                        <label className="form-group receive-form-span-2">
+                                            <span className="form-label">Destination Location</span>
+                                            <select
+                                                ref={(el) => (manifestRefs.current.destinationLocationValue = el)}
+                                                className={`form-input ${manifestErrors.destinationLocationValue ? "input-error" : ""}`}
+                                                name="destinationLocationValue"
+                                                value={manifestForm.destinationLocationValue}
+                                                onChange={handleManifestChange}
+                                            >
+                                                <option value="">Select destination location</option>
+                                                {allowedDestinationLocationOptions
+                                                    .filter((location) => location.value !== manifestForm.sourceLocationValue)
+                                                    .map((location) => (
+                                                        <option key={location.value} value={location.value}>
+                                                            {location.label}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                            {manifestErrors.destinationLocationValue && (
+                                                <span className="field-error">{manifestErrors.destinationLocationValue}</span>
+                                            )}
+                                        </label> 
+                                    </>
+                                )}
+                            </div>
+                        </section>
 
-                        {manifestMode === "outbound" ? (
-                            selectedRequest ? (
+                        <section className="page-section manifest-form-section">
+                            <div className="section-heading-row">
+                                <h2 className="section-title">Manifest Items</h2>
+                            </div>
+
+                            {manifestMode === "outbound" ? (
+                                selectedRequest ? (
+                                    <div className="received-items-list">
+                                        {editableManifestItems.map((manifestItem, index) => {
+                                            const inventoryItem = requestableInventoryItems.find(
+                                                (item) => item.id === manifestItem.inventoryItemId
+                                            )
+
+                                            const requestedQuantity = getRequestedQuantity(manifestItem.inventoryItemId)
+                                            const availableQuantity = Number(inventoryItem?.quantity || 0)
+                                            const requestedQty = Number(requestedQuantity || 0)
+
+                                            const isOutOfStock = availableQuantity === 0
+                                            const isPartial = availableQuantity > 0 && availableQuantity < requestedQty
+
+                                            return (
+                                                <div
+                                                    className={`received-item-card 
+                                                        ${isOutOfStock ? "manifest-item-out" : ""} 
+                                                        ${isPartial ? "manifest-item-short" : ""}`}
+                                                    key={manifestItem.id}
+                                                    ref={(el) => (lineRefs.current[manifestItem.id] = el)}
+                                                >
+                                                    <div className="section-heading-row">
+                                                        <h3 className="received-item-title">Item {index + 1}</h3>
+                                                        {isPartial && <span className="manifest-warning-badge">Short Available</span>}
+                                                        {isOutOfStock && <span className="manifest-warning-out">Out of Stock</span>}
+                                                    </div>
+
+                                                    <div className="receive-form-grid">
+                                                        <label className="form-group receive-form-span-2">
+                                                            <span className="form-label">Material</span>
+                                                            <input 
+                                                                className="form-input read-only-input"
+                                                                type="text"
+                                                                value={inventoryItem?.name || ""}
+                                                                readOnly
+                                                            />
+                                                        </label>
+
+                                                        <label className="form-group receive-form-span-2">
+                                                            <span className="form-label">SKU</span>
+                                                            <input 
+                                                                className="form-input read-only-input"
+                                                                type="text"
+                                                                value={inventoryItem?.sku || ""}
+                                                                readOnly
+                                                            />
+                                                        </label>
+
+                                                        <label className="form-group receive-form-span-2">
+                                                            <span className="form-label">Unit</span>
+                                                            <input 
+                                                                className="form-input read-only-input"
+                                                                type="text"
+                                                                value={inventoryItem?.unit || ""}
+                                                                readOnly
+                                                            />
+                                                        </label>
+
+                                                        <label className="form-group receive-form-span-2">
+                                                            <span className="form-label">Requested Quantity</span>
+                                                            <input 
+                                                                className="form-input read-only-input"
+                                                                type="text"
+                                                                value={requestedQuantity}
+                                                                readOnly
+                                                            />
+                                                        </label>
+
+                                                        <label className="form-group receive-form-span-2">
+                                                            <span className="form-label">Available Quantity</span>
+                                                            <input 
+                                                                className={`form-input read-only-input ${(isPartial || isOutOfStock) ? "manifest-readonly-warning" : ""}`}
+                                                                type="text"
+                                                                value={availableQuantity}
+                                                                readOnly
+                                                            />
+                                                        </label>
+
+                                                        <label className="form-group receive-form-span-2">
+                                                            <span className="form-label">Manifest Quantity</span>
+                                                            <input 
+                                                                className={`form-input ${itemErrors[manifestItem.id]?.manifestQuantity ? "input-error" : ""}`}
+                                                                type="number"
+                                                                value={manifestItem.manifestQuantity}
+                                                                onChange={(e) => handleManifestItemChange(
+                                                                    manifestItem.id,
+                                                                    "manifestQuantity",
+                                                                    e.target.value
+                                                                )}
+                                                                placeholder="0"
+                                                            />
+                                                            {itemErrors[manifestItem.id]?.manifestQuantity && (
+                                                                <span className="field-error">
+                                                                    {itemErrors[manifestItem.id].manifestQuantity}
+                                                                </span>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                            ):(
+                                <div className="manifest-empty-state">
+                                    Select an approved request to load requested items and confirm manifest quantities.
+                                </div>
+                            )
+                            ) : (
                                 <div className="received-items-list">
                                     {editableManifestItems.map((manifestItem, index) => {
-                                        const inventoryItem = requestableInventoryItems.find(
-                                            (item) => item.id === manifestItem.inventoryItemId
+                                        const inventoryItem = manualSourceInventory.find(
+                                            (item) => String(item.id) === String(manifestItem.inventoryItemId)
                                         )
 
-                                        const requestedQuantity = getRequestedQuantity(manifestItem.inventoryItemId)
-                                        const availableQuantity = Number(inventoryItem?.quantity || 0)
-                                        const requestedQty = Number(requestedQuantity || 0)
-
-                                        const isOutOfStock = availableQuantity === 0
-                                        const isPartial = availableQuantity > 0 && availableQuantity < requestedQty
+                                        const selectedInventoryIds = editableManifestItems
+                                            .filter((item) => item.id !== manifestItem.id && item.inventoryItemId)
+                                            .map((item) => String(item.inventoryItemId))
+                                        
+                                        const hasSelectedInventory = !!manifestItem.inventoryItemId
+                                        const availableQuantity = hasSelectedInventory
+                                            ? Number(inventoryItem?.quantity || 0)
+                                            : ""
+                                        const isOutOfStock = hasSelectedInventory && Number(inventoryItem?.quantity || 0) === 0
 
                                         return (
                                             <div
-                                                className={`received-item-card 
-                                                    ${isOutOfStock ? "manifest-item-out" : ""} 
-                                                    ${isPartial ? "manifest-item-short" : ""}`}
+                                                className={`received-item-card ${isOutOfStock ? "manifest-item-out" : ""}`}
                                                 key={manifestItem.id}
-                                                ref={(el) => (lineRefs.current[manifestItem.id] = el)}
+                                                ref={(el) => (lineRefs.current[manifestItem.id]= el)}
                                             >
                                                 <div className="section-heading-row">
                                                     <h3 className="received-item-title">Item {index + 1}</h3>
-                                                    {isPartial && <span className="manifest-warning-badge">Short Available</span>}
-                                                    {isOutOfStock && <span className="manifest-warning-out">Out of Stock</span>}
+                                                    {isOutOfStock && (
+                                                        <span className="manifest-warning-out">Out of Stock</span>
+                                                    )}
+                                                    {editableManifestItems.length > 1 && (
+                                                        <button
+                                                            className="text-button"
+                                                            type="button"
+                                                            onClick={() => handleRemoveManualManifestItem(manifestItem.id)}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
                                                 </div>
 
                                                 <div className="receive-form-grid">
                                                     <label className="form-group receive-form-span-2">
-                                                        <span className="form-label">Material</span>
-                                                        <input 
-                                                            className="form-input read-only-input"
-                                                            type="text"
-                                                            value={inventoryItem?.name || ""}
-                                                            readOnly
-                                                        />
+                                                        <span className="form-label">Inventory Item</span>
+                                                        <select
+                                                            className={`form-input ${itemErrors[manifestItem.id]?.inventoryItemId ? "input-error": ""}`}
+                                                            value={manifestItem.inventoryItemId}
+                                                            onChange={(e) => handleManifestItemChange(
+                                                                    manifestItem.id,
+                                                                    "inventoryItemId",
+                                                                    e.target.value
+                                                                )}
+                                                        >
+                                                            <option value="">Select inventory item</option>
+                                                            {manualSourceInventory
+                                                                .filter((item) => !selectedInventoryIds.includes(String(item.id)))
+                                                                .map((item) => (
+                                                                    <option key={item.id} value={item.id}>
+                                                                        {item.name} ({item.sku})
+                                                                    </option>
+                                                                ))
+                                                            }
+                                                        </select>
+                                                        {itemErrors[manifestItem.id]?.inventoryItemId && (
+                                                            <span className="field-error">{itemErrors[manifestItem.id].inventoryItemId}</span>
+                                                        )}
                                                     </label>
 
                                                     <label className="form-group receive-form-span-2">
@@ -862,19 +1052,9 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                                     </label>
 
                                                     <label className="form-group receive-form-span-2">
-                                                        <span className="form-label">Requested Quantity</span>
-                                                        <input 
-                                                            className="form-input read-only-input"
-                                                            type="text"
-                                                            value={requestedQuantity}
-                                                            readOnly
-                                                        />
-                                                    </label>
-
-                                                    <label className="form-group receive-form-span-2">
                                                         <span className="form-label">Available Quantity</span>
                                                         <input 
-                                                            className={`form-input read-only-input ${(isPartial || isOutOfStock) ? "manifest-readonly-warning" : ""}`}
+                                                            className={`form-input read-only-input ${isOutOfStock ? "manifest-readonly-warning" : ""}`}
                                                             type="text"
                                                             value={availableQuantity}
                                                             readOnly
@@ -904,186 +1084,68 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                             </div>
                                         )
                                     })}
-                                </div>
-                        ):(
-                            <div className="manifest-empty-state">
-                                Select a pending request to load requested items and confirm manifest quantities.
-                            </div>
-                        )
-                        ) : (
-                            <div className="received-items-list">
-                                {editableManifestItems.map((manifestItem, index) => {
-                                    const inventoryItem = manualSourceInventory.find(
-                                        (item) => String(item.id) === String(manifestItem.inventoryItemId)
-                                    )
 
-                                    const selectedInventoryIds = editableManifestItems
-                                        .filter((item) => item.id !== manifestItem.id && item.inventoryItemId)
-                                        .map((item) => String(item.inventoryItemId))
-                                    
-                                    const hasSelectedInventory = !!manifestItem.inventoryItemId
-                                    const availableQuantity = hasSelectedInventory
-                                        ? Number(inventoryItem?.quantity || 0)
-                                        : ""
-                                    const isOutOfStock = hasSelectedInventory && Number(inventoryItem?.quantity || 0) === 0
-
-                                    return (
-                                        <div
-                                            className={`received-item-card ${isOutOfStock ? "manifest-item-out" : ""}`}
-                                            key={manifestItem.id}
-                                            ref={(el) => (lineRefs.current[manifestItem.id]= el)}
+                                    <div className="receive-add-item">
+                                        {editableManifestItems.length === 0 && (
+                                            <div className="empty-state-message">
+                                                No items added yet. Select a manual manifest type and source location, then click Add Item.
+                                            </div>
+                                        )}
+                                        <button
+                                            className="secondary-button"
+                                            type="button"
+                                            onClick={handleAddManualManifestItem}
+                                            disabled={!manifestForm.sourceLocationValue}
                                         >
-                                            <div className="section-heading-row">
-                                                <h3 className="received-item-title">Item {index + 1}</h3>
-                                                {isOutOfStock && (
-                                                    <span className="manifest-warning-out">Out of Stock</span>
-                                                )}
-                                                {editableManifestItems.length > 1 && (
-                                                    <button
-                                                        className="text-button"
-                                                        type="button"
-                                                        onClick={() => handleRemoveManualManifestItem(manifestItem.id)}
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            <div className="receive-form-grid">
-                                                <label className="form-group receive-form-span-2">
-                                                    <span className="form-label">Inventory Item</span>
-                                                    <select
-                                                        className={`form-input ${itemErrors[manifestItem.id]?.inventoryItemId ? "input-error": ""}`}
-                                                        value={manifestItem.inventoryItemId}
-                                                        onChange={(e) => handleManifestItemChange(
-                                                                manifestItem.id,
-                                                                "inventoryItemId",
-                                                                e.target.value
-                                                            )}
-                                                    >
-                                                        <option value="">Select inventory item</option>
-                                                        {manualSourceInventory
-                                                            .filter((item) => !selectedInventoryIds.includes(String(item.id)))
-                                                            .map((item) => (
-                                                                <option key={item.id} value={item.id}>
-                                                                    {item.name} ({item.sku})
-                                                                </option>
-                                                            ))
-                                                        }
-                                                    </select>
-                                                    {itemErrors[manifestItem.id]?.inventoryItemId && (
-                                                        <span className="field-error">{itemErrors[manifestItem.id].inventoryItemId}</span>
-                                                    )}
-                                                </label>
-
-                                                <label className="form-group receive-form-span-2">
-                                                    <span className="form-label">SKU</span>
-                                                    <input 
-                                                        className="form-input read-only-input"
-                                                        type="text"
-                                                        value={inventoryItem?.sku || ""}
-                                                        readOnly
-                                                    />
-                                                </label>
-
-                                                <label className="form-group receive-form-span-2">
-                                                    <span className="form-label">Unit</span>
-                                                    <input 
-                                                        className="form-input read-only-input"
-                                                        type="text"
-                                                        value={inventoryItem?.unit || ""}
-                                                        readOnly
-                                                    />
-                                                </label>
-
-                                                <label className="form-group receive-form-span-2">
-                                                    <span className="form-label">Available Quantity</span>
-                                                    <input 
-                                                        className={`form-input read-only-input ${isOutOfStock ? "manifest-readonly-warning" : ""}`}
-                                                        type="text"
-                                                        value={availableQuantity}
-                                                        readOnly
-                                                    />
-                                                </label>
-
-                                                <label className="form-group receive-form-span-2">
-                                                    <span className="form-label">Manifest Quantity</span>
-                                                    <input 
-                                                        className={`form-input ${itemErrors[manifestItem.id]?.manifestQuantity ? "input-error" : ""}`}
-                                                        type="number"
-                                                        value={manifestItem.manifestQuantity}
-                                                        onChange={(e) => handleManifestItemChange(
-                                                            manifestItem.id,
-                                                            "manifestQuantity",
-                                                            e.target.value
-                                                        )}
-                                                        placeholder="0"
-                                                    />
-                                                    {itemErrors[manifestItem.id]?.manifestQuantity && (
-                                                        <span className="field-error">
-                                                            {itemErrors[manifestItem.id].manifestQuantity}
-                                                        </span>
-                                                    )}
-                                                </label>
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-
-                                <div className="receive-add-item">
-                                    {editableManifestItems.length === 0 && (
-                                        <div className="empty-state-message">
-                                            No items added yet. Select a manual manifest type and source location, then click Add Item.
-                                        </div>
-                                    )}
-                                    <button
-                                        className="secondary-button"
-                                        type="button"
-                                        onClick={handleAddManualManifestItem}
-                                        disabled={!manifestForm.sourceLocationValue}
-                                    >
-                                        + Add Item
-                                    </button>
+                                            + Add Item
+                                        </button>
+                                    </div>
                                 </div>
+                            )}
+                        </section>
+
+                        <section className="page-section manifest-form-section">
+                            <div className="section-heading-row">
+                                <h2 className="section-title">Notes</h2>
                             </div>
-                        )}
-                    </section>
 
-                    <section className="page-section manifest-form-section">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Notes</h2>
-                        </div>
+                            <label className="form-group">
+                                <span className="form-label">Manifest Notes</span>
+                                <textarea 
+                                    className="form-textarea"
+                                    name="notes"
+                                    value={manifestForm.notes}
+                                    onChange={handleManifestChange}
+                                    placeholder="Add notes about shortages, loading instructions, or special handling."
+                                />
+                            </label>
+                        </section>
 
-                        <label className="form-group">
-                            <span className="form-label">Manifest Notes</span>
-                            <textarea 
-                                className="form-textarea"
-                                name="notes"
-                                value={manifestForm.notes}
-                                onChange={handleManifestChange}
-                                placeholder="Add notes about shortages, loading instructions, or special handling."
-                            />
-                        </label>
-                    </section>
+                        <section className="receive-actions">
+                            {formError && <div className="login-error">{formError}</div>}
 
-                    <section className="receive-actions">
-                        {formError && <div className="login-error">{formError}</div>}
+                            <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={handleSaveDraft}
+                            >
+                                Save Draft
+                            </button>
 
-                        <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={handleSaveDraft}
-                        >
-                            Save Draft
-                        </button>
-
-                        <button className="primary-button" type="submit">
-                            Finalize Manifest
-                        </button>
-                    </section>
-                </form>
+                            <button className="primary-button" type="submit">
+                                Finalize Manifest
+                            </button>
+                        </section>
+                    </form>
+                </div>
             </div>
-        </div>
+
+            <Toast 
+                message={toast.message}
+                type={toast.type}
+                onClose={() => setToast({ message: "", type: "success" })}
+            />
+        </>
     )
 }
 

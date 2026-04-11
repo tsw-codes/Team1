@@ -43,7 +43,7 @@ export function findRequestableInventoryItemById(id) {
   return requestableInventory.find((item) => String(item.id) === String(id)) || null
 }
 
-export function findInvntoryItembyId(id) {
+export function findInventoryItemById(id) {
   return mockInventory.find((item) => String(item.id) === String(id)) || null
 }
 

@@ -1,3 +1,5 @@
+import PasswordInput from "./PasswordInput"
+
 function LoginPage({ loginForm, loginError, onChange, onLogin}) {
     return(
         <div className="login-page">
@@ -21,9 +23,8 @@ function LoginPage({ loginForm, loginError, onChange, onLogin}) {
 
                     <label className="form-group">
                         <span className="form-label">Password</span>
-                        <input 
-                            className="form-input"
-                            type="password"
+
+                        <PasswordInput
                             name="password"
                             value={loginForm.password}
                             onChange={onChange}
