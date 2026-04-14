@@ -50,13 +50,16 @@ export function getTransfersForPermissions(permissions = []) {
 
 export function createTransfer(newTransfer) {
     const transferTypeValue = newTransfer.transferTypeValue || newTransfer.transferType
-    const transferWithId = { 
-        ...newTransfer, 
+
+    const transferWithId = {
+        ...newTransfer,
         id: generateTransferId(transferTypeValue),
         transferTypeValue,
         transferType: newTransfer.transferType || transferTypeValue,
         statusValue: newTransfer.statusValue || "in_transit",
-        status: newTransfer.status || "In Transit"
+        status: newTransfer.status || "In Transit",
+        completionOutcomeValue: newTransfer.completionOutcomeValue ?? null,
+        completionOutcome: newTransfer.completionOutcome ?? null,
     }
 
     mockTransfers.unshift(transferWithId)

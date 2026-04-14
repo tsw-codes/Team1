@@ -13,9 +13,12 @@ import ReceiveInventoryPage from './components/ReceiveInventoryPage'
 import RequestMaterialPage from './components/RequestMaterialPage'
 import ManifestInventoryPage from './components/ManifestInventoryPage'
 import TransferInventoryPage from './components/TransferInventoryPage'
+import PendingRequestsPage from './components/PendingRequestsPage'
+import ShipmentTrackingPage from './components/ShipmentTrackingPage'
 
 import { getPermissionsForRole } from './auth/permissions'
 import { authenticateUser, updateUserPassword } from './services/authService'
+import Toast from './components/Toast'
 
 const pageVariants = {
   enter: (direction) => ({
@@ -52,6 +55,8 @@ function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  const [accountToast, setAccountToast] = useState({ message: '', type: 'success' })
+
   const [navDirection, setNavDirection] = useState('forward')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
@@ -70,6 +75,15 @@ function App() {
 
   const [changePasswordError, setChangePasswordError] = useState('')
   const [changePasswordSuccess, setChangePasswordSuccess] = useState('')
+
+  function showAccountToast(message, type = 'success') {
+    setAccountToast({ message, type })
+
+    window.clearTimeout(showAccountToast.timeoutId)
+    showAccountToast.timeoutId = window.setTimeout(() => {
+      setAccountToast({ message: '', type: 'success' })
+    }, 3000)
+  }
 
   function handleChange(e) {
     const { name, value } = e.target
@@ -217,7 +231,11 @@ function App() {
       return
     }
 
-    setCurrentUser(updatedUser)
+    setCurrentUser((prev) => ({
+      ...prev,
+      ...updatedUser,
+      password: newPassword,
+    }))
 
     setLoginForm((prev) => ({
       ...prev,
@@ -225,13 +243,17 @@ function App() {
     }))
 
     setChangePasswordError('')
-    setChangePasswordSuccess('Password changed successfully.')
+    setChangePasswordSuccess('')
 
     setChangePasswordForm({
       currentPassword: '',
       newPassword: '',
       confirmNewPassword: '',
     })
+
+    showAccountToast('Password changed successfully.')
+    setNavDirection('back')
+    navigate('/account')
   }
 
   function handleBackToAccount() {
@@ -305,6 +327,8 @@ function App() {
                           onChangePassword={handleOpenChangePassword}
                           onLogout={handleLogout}
                           onBack={handleGoHome}
+                          toast={accountToast}
+                          onCloseToast={() => setAccountToast({ message: '', type: 'success' })}
                         />
                       </PageTransition>
                     ) : (
@@ -408,6 +432,38 @@ function App() {
                         <TransferInventoryPage 
                           onBack={handleGoHome}
                           currentUser={currentUser}
+                          permissions={permissions}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route 
+                  path='/pending-requests'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <PendingRequestsPage 
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route 
+                  path='/shipment-tracking'
+                  element={
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <ShipmentTrackingPage
+                          onBack={handleGoHome}
                           permissions={permissions}
                         />
                       </PageTransition>

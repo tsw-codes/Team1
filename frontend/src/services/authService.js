@@ -17,7 +17,7 @@ export function findUserbyUsername(username) {
 }
 
 export function updateUserPassword(userId, newPassword) {
-    const index = mockUsers.find((user) => user.id === userId)
+    const index = mockUsers.findIndex((user) => user.id === userId)
 
     if (index === -1) return null
 

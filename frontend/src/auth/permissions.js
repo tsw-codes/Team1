@@ -1,6 +1,6 @@
 export const rolePermissions = {
     admin: [
-        "view_inventory", 
+        "view_inventory",
         "view_material_cost",
         "receive_inventory",
         "receive_inventory_warehouse",
@@ -11,6 +11,10 @@ export const rolePermissions = {
         "transfer_inventory",
         "manifest_inventory",
         "request_material",
+        "approve_requests",
+        "view_pending_requests",
+        "upload_purchase_orders",
+        "match_purchase_orders",
         "create_outbound_manifest",
         "create_return_manifest",
         "create_warehouse_transfer_manifest",
@@ -25,15 +29,21 @@ export const rolePermissions = {
         "track_shipment",
         "manage_users",
         "manage_locations",
+        "manage_projects",
     ],
+
     projectManager: [
-        "view_inventory", 
+        "view_inventory",
         "view_material_cost",
-        "request_material",
+        "approve_requests",
+        "view_pending_requests",
+        "upload_purchase_orders",
+        "match_purchase_orders",
         "track_shipment",
     ],
+
     warehouseManager: [
-        "view_inventory", 
+        "view_inventory",
         "receive_inventory",
         "receive_inventory_warehouse",
         "adjust_inventory",
@@ -49,8 +59,9 @@ export const rolePermissions = {
         "transfer_to_warehouse",
         "track_shipment",
     ],
+
     logisticsAssociate: [
-        "view_inventory", 
+        "view_inventory",
         "receive_inventory",
         "receive_inventory_site",
         "adjust_inventory",
@@ -63,12 +74,18 @@ export const rolePermissions = {
         "transfer_to_job_site",
         "track_shipment",
     ],
+
+    logisticsForeman: [
+        "view_inventory",
+        "request_material",
+        "track_shipment",
+    ],
 }
 
 export function getPermissionsForRole(role) {
-    return rolePermissions[role] ?? [];
+    return rolePermissions[role] ?? []
 }
 
 export function hasPermission(permissions, permission) {
-    return permissions.includes(permission);
+    return permissions.includes(permission)
 }

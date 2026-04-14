@@ -9,6 +9,7 @@ import {
     getProjectByValue,
     getLocationByValue,
 } from "../services/projectService"
+import InfoHeader from "./InfoHeader"
 
 function createEmptyRequestItem() {
     return {
@@ -24,6 +25,8 @@ function RequestMaterialPage({ onBack, currentUser }) {
     const requestRefs = useRef({})
     const itemFieldRefs = useRef({})
     const requestScrollRef = useRef(null)
+
+    const [infoOpen, setInfoOpen] = useState(() => window.innerWidth > 900)
 
     const [formError, setFormError] = useState("")
     const [requestErrors, setRequestErrors] = useState({})
@@ -106,7 +109,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
             setRequestErrors((prev) => {
                 const next = { ...prev }
                 delete next.projectValue
-                delete next.deliveryLocationValue
+                delete next.deliveryLocationText
                 return next
             })
         }
@@ -319,8 +322,16 @@ function RequestMaterialPage({ onBack, currentUser }) {
             requestedBy: requestForm.requestedBy,
             createdAt: requestForm.createdAt,
             
-            statusValue: "pending",
-            status: "Pending",
+            statusValue: "pending_approval",
+            status: "Pending Approval",
+
+            approvedBy: null,
+            approvedAt: null,
+
+            rejectedBy: null,
+            rejectedAt: null,
+
+            approvalNotes: "",
 
             locationValue: requestForm.locationValue,
             location: selectedLocation?.label || "",
@@ -412,23 +423,14 @@ function RequestMaterialPage({ onBack, currentUser }) {
         <div className="request-page">
             <div className="request-page-scroll" ref={requestScrollRef}>
                 <form className="request-form" onSubmit={handleSubmitRequest}>
-                    <section className="page-section request-header">
-                        <div className="request-header-bar">
-                            <button
-                                className="text-button back-button"
-                                type="button"
-                                onClick={onBack}
-                            >
-                                ← Home
-                            </button>
-
-                            <h1 className="page-title request-title">Request Material</h1>
-                        </div>
-
-                        <p className="page-subtitle">
-                            Request warehouse inventory for project use and future manifest fulfillment.
-                        </p>
-                    </section>
+                    <InfoHeader
+                        title="Request Material"
+                        subtitle="Request warehouse inventory for project use and future manifest fulfillment."
+                        onBack={onBack}
+                        infoOpen={infoOpen}
+                        onToggleInfo={() => setInfoOpen((prev) => !prev)}
+                        countText={`${requestedItems.length} item${requestedItems.length !== 1 ? "s" : ""}`}
+                    />
 
                     <section className="page-section request-form-section">
                         <div className="section-heading-row">
@@ -517,10 +519,10 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                     onChange={handleRequestChange}   
                                 >
                                     <option value="">Select Priority</option>
-                                    <option value="Low">Low</option>
-                                    <option value="Normal">Normal</option>
-                                    <option value="High">High</option>
-                                    <option value="Urgent">Urgent</option>
+                                    <option value="low">Low</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="high">High</option>
+                                    <option value="urgent">Urgent</option>
                                 </select>
                                 {requestErrors.priorityValue && (
                                     <span className="field-error">{requestErrors.priorityValue}</span>

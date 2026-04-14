@@ -5,12 +5,15 @@ import {
     getLocationByValue,
     getProjectByValue,
  } from "../services/projectService"
+ import InfoHeader from "./InfoHeader"
 
 function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
     const fileInputRef = useRef(null)
     const itemRefs = useRef({})
     const deliveryRefs = useRef({})
     const itemFieldRefs = useRef({})
+
+    const [infoOpen, setInfoOpen] = useState(() => window.innerWidth > 900)
 
     const [scanPreview, setScanPreview] = useState(null)
 
@@ -345,23 +348,14 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
         <div className="receive-page">
             <div className="receive-page-scroll">
                 <form className="receive-form" onSubmit={handleConfirmReceipt}>
-                    <section className="page-section receive-header">
-                        <div className="receive-header-bar">
-                            <button
-                                className="text-button back-button"
-                                type="button"
-                                onClick={onBack}
-                            >
-                                ← Home
-                            </button>
-
-                            <h1 className="page-title receive-title">Receive Inventory</h1>
-                        </div>
-
-                        <p className="page-subtitle">
-                            Log incoming materials, assign a receiving location, and document deliveries.
-                        </p>
-                    </section>
+                    <InfoHeader
+                        title="Receive Inventory"
+                        subtitle="Log incoming materials, assign locations, and document deliveries."
+                        onBack={onBack}
+                        infoOpen={infoOpen}
+                        onToggleInfo={() => setInfoOpen((prev) => !prev)}
+                        countText={`${receivedItems.length} item${receivedItems.length !== 1 ? "s" : ""}`}
+                    />
 
                     <section className="page-section receive-scan-section">
                         <div className="section-heading-row">

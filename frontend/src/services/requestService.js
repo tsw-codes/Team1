@@ -1,6 +1,20 @@
 import { mockRequests, getRequestById } from "../data/mockRequests"
 import { createAuditTimestamp } from "../utils/dateUtils"
 
+let listeners = []
+
+export function subscribeToRequests(listener) {
+  listeners.push(listener)
+
+  return () => {
+    listeners = listeners.filter(l => l !== listener)
+  }
+}
+
+function notifyRequestChange() {
+  listeners.forEach(listener => listener())
+}
+
 function generateRequestId() {
   const prefix = "RQ"
 
@@ -19,17 +33,32 @@ function generateRequestId() {
 function normalizeRequest(record) {
   return {
     ...record,
-    statusValue: record.statusValue || "pending",
-    status: record.status || "Pending",
+    statusValue: record.statusValue || "pending_approval",
+    status: record.status || "Pending Approval",
+
     priorityValue: record.priorityValue || "",
     priority: record.priority || "",
+
     locationValue: record.locationValue || "",
     location: record.location || "",
+    locationType: record.locationType || "",
+
     projectValue: record.projectValue || "",
     project: record.project || "",
+
     sourceWarehouseValue: record.sourceWarehouseValue || "",
     sourceWarehouse: record.sourceWarehouse || "",
+
     deliveryLocationText: record.deliveryLocationText || "",
+
+    approvedBy: record.approvedBy ?? null,
+    approvedAt: record.approvedAt ?? null,
+
+    rejectedBy: record.rejectedBy ?? null,
+    rejectedAt: record.rejectedAt ?? null,
+
+    approvalNotes: record.approvalNotes || "",
+
     items: Array.isArray(record.items) ? record.items : [],
   }
 }
@@ -38,8 +67,16 @@ export function getAllRequests() {
   return mockRequests
 }
 
-export function getPendingRequests() {
-  return mockRequests.filter((request) => request.statusValue === "pending")
+export function getRequestsPendingApproval() {
+  return mockRequests.filter(
+    (request) => (request.statusValue || request.status) === "pending_approval"
+  )
+}
+
+export function getApprovedRequests() {
+  return mockRequests.filter(
+    (request) => (request.statusValue || request.status) === "approved"
+  )
 }
 
 export function findRequestById(id) {
@@ -51,9 +88,14 @@ export function createRequest(newRequest) {
     ...newRequest,
     id: generateRequestId(),
     createdAt: newRequest.createdAt || createAuditTimestamp(),
+    statusValue: newRequest.statusValue || "pending_approval",
+    status: newRequest.status || "Pending Approval",
   })
 
   mockRequests.unshift(requestWithId)
+
+  notifyRequestChange()
+
   return requestWithId
 }
 
@@ -68,4 +110,36 @@ export function updateRequest(id, updates) {
   })
 
   return mockRequests[index]
+}
+
+export function approveRequest(id, approvedBy, approvalNotes = "") {
+  const result =  updateRequest(id, {
+    statusValue: "approved",
+    status: "Approved",
+    approvedBy,
+    approvedAt: createAuditTimestamp(),
+    rejectedBy: null,
+    rejectedAt: null,
+    approvalNotes,
+  })
+
+  notifyRequestChange()
+
+  return result
+}
+
+export function rejectRequest(id, rejectedBy, approvalNotes = "") {
+  const result =  updateRequest(id, {
+    statusValue: "rejected",
+    status: "Rejected",
+    approvedBy: null,
+    approvedAt: null,
+    rejectedBy,
+    rejectedAt: createAuditTimestamp(),
+    approvalNotes,
+  })
+
+  notifyRequestChange()
+
+  return result
 }

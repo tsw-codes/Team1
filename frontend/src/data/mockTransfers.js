@@ -3,6 +3,11 @@ export const mockTransfers = [
     id: "TW-1001",
     manifestId: "MW-1001",
 
+    requestId: "",
+    requestedBy: "",
+    approvedBy: "",
+    approvedAt: null,
+
     transferTypeValue: "warehouse_transfer",
     transferType: "warehouse_transfer",
 
@@ -65,6 +70,11 @@ export const mockTransfers = [
     id: "TR-1001",
     manifestId: "MR-1001",
 
+    requestId: "",
+    requestedBy: "",
+    approvedBy: "",
+    approvedAt: null,
+
     transferTypeValue: "return",
     transferType: "return",
 
@@ -125,7 +135,12 @@ export const mockTransfers = [
   },
   {
     id: "TO-1002",
-    manifestId: "MO-1002",
+    manifestId: "MO-1001",
+
+    requestId: "RQ-1002",
+    requestedBy: "logistics_foreman",
+    approvedBy: "pm",
+    approvedAt: "2026-03-26T16:05:00",
 
     transferTypeValue: "outbound",
     transferType: "outbound",
@@ -181,6 +196,62 @@ export const mockTransfers = [
         manifestQuantity: 2,
         shippedQuantity: 2,
         receivedQuantity: 2,
+        varianceReason: "",
+      },
+    ],
+  },
+  {
+    id: "TO-1003",
+    manifestId: "MO-1002",
+
+    requestId: "RQ-1004",
+    requestedBy: "logistics_foreman",
+    approvedBy: "pm",
+    approvedAt: "2026-03-20T10:25:00",
+
+    transferTypeValue: "outbound",
+    transferType: "outbound",
+
+    statusValue: "completed",
+    status: "Completed",
+
+    createdBy: "logistics_assoc",
+    createdAt: "2026-03-21T10:05:00",
+    manifestDate: "2026-03-21",
+
+    shippedDate: "2026-03-21",
+    shippedAt: "2026-03-21T10:05:00",
+    shippedBy: "logistics_assoc",
+
+    receivedDate: "2026-03-21",
+    receivedAt: "2026-03-21T13:20:00",
+    receivedBy: "logistics_assoc",
+
+    locationValue: "NA",
+    location: "North Annex",
+    projectValue: "NA-001",
+    project: "North Annex - Expansion",
+
+    sourceLocationValue: "WH-B",
+    sourceLocation: "Warehouse B",
+
+    destinationLocationValue: "NA",
+    destinationLocation: "North Annex",
+    destinationDetail: "Trailer 1",
+
+    notes: "Delivered and received in full.",
+    exceptionNotes: "",
+
+    items: [
+      {
+        id: "TO-1003-1",
+        inventoryItemId: 1,
+        name: 'Copper Pipe 3/4"',
+        sku: "CP-075",
+        unit: "ft",
+        manifestQuantity: 20,
+        shippedQuantity: 20,
+        receivedQuantity: 20,
         varianceReason: "",
       },
     ],

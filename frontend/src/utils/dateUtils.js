@@ -11,3 +11,15 @@ export function formatAuditTimestamp(value) {
     
     return date.toLocaleString()
 }
+
+export function formatDate(dateString) {
+    if (!dateString) return ""
+
+    const date = new Date(dateString)
+
+    return date.toLocaleDateString(undefined, {
+        month: "numeric",
+        day: "numeric",
+        year: "numeric",
+    })
+}
