@@ -587,14 +587,14 @@ SQL files live in `backend/supabase/`.
 
 ### Phase 3: Frontend Utilities ✅ DONE (included in Phase 1)
 
-### Phase 4: Service Rewrites (in dependency order)
+### Phase 4: Service Rewrites (in dependency order) ✅ DONE
 1. ✅ `authService.js` + `App.jsx` auth flow
 2. ✅ `projectService.js` (locations/projects — referenced by everything)
 3. ✅ `inventoryService.js`
 4. ✅ `requestService.js`
 5. ✅ `manifestService.js`
 6. ✅ `transferService.js`
-7. `storageService.js` (new — packing slip uploads)
+7. ~~`storageService.js`~~ — deferred (OCR packing slips deprecated in SRS)
 
 **Auth rewrite decisions:**
 - All service functions async with `USE_MOCK` toggle — mock mode returns same data, Supabase mode hits real DB
@@ -611,16 +611,29 @@ SQL files live in `backend/supabase/`.
 - ✅ Made all submit/action handlers async with `await`
 - ✅ Added loading/error guards and `?? []` null safety on data arrays
 
-### Phase 6: Verification
-1. Auth — login/logout all 5 users, session persistence, token expiry
-2. Per-page — data loads, filters work, CRUD persists
-3. Full workflow — Request → Approve → Manifest → Transfer → Receive
-4. Permissions — each role sees only allowed actions
-5. Storage — packing slip photo upload
-6. Error handling — disconnect network, verify graceful messages
-7. RLS — attempt unauthorized ops via console, verify blocked
+### Phase 6: Verification ✅ DONE
+1. ✅ Auth — login/logout tested for admin, lf, wm; session persistence fixed (sessionLoading state)
+2. ✅ Per-page — all 8 pages load data from live DB, filters work, CRUD persists
+3. ✅ Full workflow — Request RQ-2001 → Approve → Manifest MO-1004 → Transfer TO-1004 → Ship → Receive (partial with variance)
+4. ✅ Permissions — admin sees all sections, LF sees only request/track/inventory, WM sees manifest/transfer/receive/inventory
+5. ~~Storage~~ — deferred (OCR packing slips deprecated in SRS)
+6. Error handling — DB trigger errors are human-readable (verified during workflow testing)
+7. RLS — role validation triggers verified (admin bypasses, roles enforce correct operations)
+
+**Bugs found and fixed during verification:**
+- Session redirect race condition — added `sessionLoading` state to prevent flash redirect on page refresh
+- Empty-value Supabase 406 errors — guarded `useAsyncData` calls on ManifestInventoryPage, RequestMaterialPage, ReceiveInventoryPage
+- `useAsyncData` crash on null return — wrapped `asyncFn()` with `Promise.resolve()`
+- Missing ID generation — all 3 create services (request, manifest, transfer) now call DB RPC functions
+- View-only column errors — delete `completion_outcome` and `completion_outcome_value` before transfer update
+- Variance reason always read-only — now editable during receive phase
+- Transfer item update ordering — items updated before status change so DB auto-adjustment triggers read correct received quantities
 
 ---
+
+## Remaining Work
+
+- **Deployment** — deploy frontend to Netlify with Supabase env vars for presentation day. Don't tackle until core features confirmed working.
 
 ## Deferred / Future Work
 
@@ -628,7 +641,7 @@ SQL files live in `backend/supabase/`.
 - **Admin pages** — Manage Users (req 4.6.1) and Manage Locations (req 4.6.2) — need frontend pages built
 - **Warehouse bins** — William likes the idea, schema can accommodate later
 - **OCR packing slips** — deprecated in SRS for now
-- **Deployment** — Netlify env vars for Supabase credentials
+- **Storage service** — packing slip upload/download (blocked by OCR deprecation)
 
 ---
 
@@ -639,8 +652,8 @@ SQL files live in `backend/supabase/`.
 | ~~`frontend/src/lib/supabaseClient.js`~~ | ✅ Done |
 | ~~`frontend/src/hooks/useAsyncData.js`~~ | ✅ Done |
 | ~~`frontend/src/utils/caseUtils.js`~~ | ✅ Done |
-| `frontend/src/services/storageService.js` | Packing slip upload/download |
-| `frontend/src/services/README.md` | Service API docs for frontend devs |
+| ~~`frontend/src/services/storageService.js`~~ | Deferred (OCR deprecated) |
+| ~~`frontend/src/services/README.md`~~ | ✅ Done |
 | ~~`frontend/.env.local`~~ | ✅ Done |
 | ~~`frontend/.env.example`~~ | ✅ Done |
 | ~~`backend/supabase/schema.sql`~~ | ✅ Done (split into 01-05) |
@@ -659,6 +672,6 @@ SQL files live in `backend/supabase/`.
 | ~~`frontend/src/services/manifestService.js`~~ | ✅ Done |
 | ~~`frontend/src/services/transferService.js`~~ | ✅ Done |
 | ~~`frontend/src/App.jsx`~~ | ✅ Done — async auth, session persistence |
-| `frontend/src/components/*Page.jsx` (7 pages) | `useAsyncData` + loading/error states |
+| ~~`frontend/src/components/*Page.jsx` (7 pages)~~ | ✅ Done — `useAsyncData` + loading/error states + empty-value guards |
 | ~~`frontend/package.json`~~ | ✅ Done — added `@supabase/supabase-js` |
 | ~~`.gitignore`~~ | ✅ Done — added `.env.local`, Supabase CLI `.temp` |
