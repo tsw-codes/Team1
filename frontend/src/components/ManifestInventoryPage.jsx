@@ -131,17 +131,17 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
     const [editableManifestItems, setEditableManifestItems] = useState([])
 
     const { data: selectedRequest } = useAsyncData(
-        () => findRequestById(manifestForm.requestId),
+        () => manifestForm.requestId ? findRequestById(manifestForm.requestId) : null,
         [manifestForm.requestId]
     )
 
     const { data: selectedSourceLocation } = useAsyncData(
-        () => getLocationByValue(manifestForm.sourceLocationValue),
+        () => manifestForm.sourceLocationValue ? getLocationByValue(manifestForm.sourceLocationValue) : null,
         [manifestForm.sourceLocationValue]
     )
 
     const { data: selectedDestinationLocation } = useAsyncData(
-        () => getLocationByValue(manifestForm.destinationLocationValue),
+        () => manifestForm.destinationLocationValue ? getLocationByValue(manifestForm.destinationLocationValue) : null,
         [manifestForm.destinationLocationValue]
     )
 

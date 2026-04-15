@@ -21,7 +21,7 @@ export function useAsyncData(asyncFn, deps = []) {
     setLoading(true)
     setError(null)
 
-    asyncFn()
+    Promise.resolve(asyncFn())
       .then((result) => {
         if (!cancelled) {
           setData(result)

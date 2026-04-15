@@ -169,6 +169,13 @@ export async function createManifest(newManifest) {
   delete snakeFields.source_location
   delete snakeFields.destination_location
 
+  // Generate ID from DB function
+  const { data: generatedId, error: idError } = await supabase
+    .rpc('generate_manifest_id', { manifest_type: snakeFields.manifest_type_value })
+
+  if (idError) throw new Error(idError.message)
+  snakeFields.id = generatedId
+
   const { data: manifest, error } = await supabase
     .from('manifests')
     .insert(snakeFields)

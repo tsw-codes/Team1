@@ -906,11 +906,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                                 
                                                 <label className="form-group receive-form-span-2">
                                                     <span className="form-label">Variance Reason</span>
-                                                    <input 
-                                                        className="form-input read-only-input"
+                                                    <input
+                                                        className={`form-input ${!isReceiving ? "read-only-input" : ""}`}
                                                         type="text"
                                                         value={item.varianceReason || ""}
-                                                        readOnly
+                                                        onChange={(e) => handleItemChange(item.id, "varianceReason", e.target.value)}
+                                                        placeholder={isReceiving ? "Explain any quantity difference" : ""}
+                                                        readOnly={!isReceiving}
                                                     />
                                                 </label>
                                             </div>

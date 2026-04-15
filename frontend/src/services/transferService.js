@@ -164,6 +164,13 @@ export async function createTransfer(newTransfer) {
   delete snakeFields.destination_location
   delete snakeFields.completion_outcome
 
+  // Generate ID from DB function
+  const { data: generatedId, error: idError } = await supabase
+    .rpc('generate_transfer_id', { transfer_type: snakeFields.transfer_type_value })
+
+  if (idError) throw new Error(idError.message)
+  snakeFields.id = generatedId
+
   const { data: transfer, error } = await supabase
     .from('transfers')
     .insert(snakeFields)
@@ -220,15 +227,11 @@ export async function updateTransfer(id, updates) {
   delete snakeUpdates.project
   delete snakeUpdates.source_location
   delete snakeUpdates.destination_location
+  delete snakeUpdates.completion_outcome
+  delete snakeUpdates.completion_outcome_value
 
-  const { error } = await supabase
-    .from('transfers')
-    .update(snakeUpdates)
-    .eq('id', id)
-
-  if (error) throw new Error(error.message)
-
-  // Update transfer items if provided (e.g., received quantities)
+  // Update transfer items FIRST (before status change) so DB triggers
+  // read the correct received quantities when auto-adjusting inventory
   if (items && items.length > 0) {
     for (const item of items) {
       const itemUpdates = {}
@@ -246,6 +249,13 @@ export async function updateTransfer(id, updates) {
       }
     }
   }
+
+  const { error } = await supabase
+    .from('transfers')
+    .update(snakeUpdates)
+    .eq('id', id)
+
+  if (error) throw new Error(error.message)
 
   return findTransferById(id)
 }

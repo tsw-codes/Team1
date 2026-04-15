@@ -58,6 +58,7 @@ function App() {
 
   const [navDirection, setNavDirection] = useState('forward')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [sessionLoading, setSessionLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState(null)
 
   const [loginForm, setLoginForm] = useState({
@@ -82,6 +83,8 @@ function App() {
         setCurrentUser(profile)
         setIsLoggedIn(true)
       }
+    }).finally(() => {
+      setSessionLoading(false)
     })
   }, [])
 
@@ -285,6 +288,9 @@ function App() {
   const permissions = currentUser ? getPermissionsForRole(currentUser.role) : []
 
   const showAccountIcon = isLoggedIn && location.pathname !== '/login'
+
+  // Wait for session check before rendering routes (prevents redirect flash)
+  if (sessionLoading) return null
 
   return(
     <>

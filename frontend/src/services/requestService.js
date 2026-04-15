@@ -182,6 +182,13 @@ export async function createRequest(newRequest) {
   delete snakeFields.project
   delete snakeFields.source_warehouse
 
+  // Generate ID from DB function
+  const { data: generatedId, error: idError } = await supabase
+    .rpc('generate_request_id')
+
+  if (idError) throw new Error(idError.message)
+  snakeFields.id = generatedId
+
   const { data: request, error } = await supabase
     .from('requests')
     .insert(snakeFields)
