@@ -41,6 +41,40 @@ By default the app runs with **mock data** — no backend setup needed.
 | la | la123 | Logistics Associate |
 | lf | lf123 | Logistics Foreman |
 
+## Features
+
+### Authentication and account flow
+- Login flow with role-based users (mock and Supabase)
+- Protected routes — unauthenticated users are redirected to login
+- Session persistence across page refresh (Supabase JWT)
+- Account page with username, name, role display and log out
+- Change password with current password verification, strength rules, and confirmation matching
+
+### Role permissions
+- Role permission model in `frontend/src/auth/permissions.js`
+- 5 roles: Admin, Project Manager, Warehouse Manager, Logistics Associate, Logistics Foreman
+- Home page actions filtered by role permissions
+- Two-layer security: UI gates + database-level RLS and triggers
+
+### Implemented pages
+- **Login** — username/password authentication
+- **Home** — permission-gated action tiles per role
+- **Account** — profile info, change password, log out
+- **Inventory** — search, filters (project/category/status), summary cards, item detail panel with permission-gated cost/actions, inventory adjustment (increase/decrease/set)
+- **Receive Inventory** — delivery and item entry forms, validation with first-error scroll, add/remove item rows, document upload/scan preview UI
+- **Request Material** — request metadata form, multi-item request builder, warehouse-based item selection, quantity validation against available inventory
+- **Pending Requests** — review and approve/reject requests with notes
+- **Manifest Inventory** — create outbound/return/warehouse transfer manifests from approved requests or manually, confirm quantities against available stock
+- **Transfer Inventory** — ship and receive transfers, partial receipt with variance tracking and exception notes
+- **Shipment Tracking** — full pipeline view with status filters, search, and detail panel
+
+### Backend integration
+- All services toggle between mock data and live Supabase via `VITE_USE_MOCK` flag
+- Database triggers enforce workflow state machine (request → manifest → transfer)
+- Inventory auto-adjusts on ship (decrease source) and receive (increase destination)
+- ID generation handled by database functions (RQ-xxxx, MO-xxxx, TO-xxxx)
+- Full audit trail: who requested, approved, shipped, received, and any discrepancies
+
 ## Tech Stack
 
 - **Frontend:** React 19, Vite, Tailwind CSS, React Router, Motion
