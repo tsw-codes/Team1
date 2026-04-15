@@ -548,16 +548,25 @@ DB triggers on transfer status change:
 
 ## Implementation Phases
 
-### Phase 1: Supabase Project + Client Setup
-1. Create Supabase project at supabase.com/dashboard
-2. Note project URL + anon key from Settings > API
-3. Enable email/password auth, disable email confirmation for dev
-4. Set site URL to `http://localhost:5173`
-5. Install SDK: `npm install @supabase/supabase-js`
-6. Create `frontend/src/lib/supabaseClient.js`
-7. Create `frontend/.env.local` with credentials
-8. Create `frontend/.env.example` (committed — shows teammates what vars they need)
-9. Add `.env.local` to `.gitignore`
+### Phase 1: Supabase Project + Client Setup ✅ DONE
+1. ✅ Created Supabase project "MEC2 Inventory" (us-east-1, ref: utxzjalyxcgbqheciyzh)
+2. ✅ Installed `@supabase/supabase-js` v2.103.0
+3. ✅ Created `frontend/src/lib/supabaseClient.js` — lazy init (only creates client when `VITE_USE_MOCK=false`)
+4. ✅ Created `frontend/.env.example` (committed) + `frontend/.env.local` (gitignored)
+5. ✅ Created `frontend/src/hooks/useAsyncData.js` — loading/error/refetch hook
+6. ✅ Created `frontend/src/utils/caseUtils.js` — recursive snake/camel transforms
+7. ✅ Ran all SQL files (01-05 + seed) on live Supabase project
+8. ✅ Created 5 demo auth users with auto-created profiles
+9. ✅ Added `backend/README.md` with setup instructions for teammates
+
+**Decisions made:**
+- Default to `VITE_USE_MOCK=true` so teammates can run without Supabase credentials
+- `supabaseClient.js` exports `null` in mock mode — prevents SDK init errors without credentials
+- Exports `USE_MOCK` flag for services to check
+- Profile trigger needed `SET search_path = public` and `NULLIF` for empty metadata to work correctly
+- `create-demo-users.mjs` uses raw fetch to Supabase auth admin API (no extra dependencies)
+- Demo passwords are `username + 123` (e.g. admin123, pm123) instead of matching the mock passwords
+- Supabase CLI `.temp` directory gitignored at root
 
 ### Phase 2: Database Schema ✅ DONE
 SQL files live in `backend/supabase/`.
@@ -576,9 +585,7 @@ SQL files live in `backend/supabase/`.
 - All DB error messages are human-readable for frontend toast display
 - Admin bypasses role checks but NOT workflow state transitions (data integrity)
 
-### Phase 3: Frontend Utilities
-1. `src/utils/caseUtils.js` — snake/camel transforms
-2. `src/hooks/useAsyncData.js` — async data loading hook
+### Phase 3: Frontend Utilities ✅ DONE (included in Phase 1)
 
 ### Phase 4: Service Rewrites (in dependency order)
 1. `authService.js` + `App.jsx` auth flow
@@ -618,15 +625,17 @@ SQL files live in `backend/supabase/`.
 
 | File | Purpose |
 |---|---|
-| `frontend/src/lib/supabaseClient.js` | Supabase client singleton |
-| `frontend/src/hooks/useAsyncData.js` | Async data loading hook |
-| `frontend/src/utils/caseUtils.js` | snake_case ↔ camelCase transforms |
+| ~~`frontend/src/lib/supabaseClient.js`~~ | ✅ Done |
+| ~~`frontend/src/hooks/useAsyncData.js`~~ | ✅ Done |
+| ~~`frontend/src/utils/caseUtils.js`~~ | ✅ Done |
 | `frontend/src/services/storageService.js` | Packing slip upload/download |
 | `frontend/src/services/README.md` | Service API docs for frontend devs |
-| `frontend/.env.local` | Supabase credentials (gitignored) |
-| `frontend/.env.example` | Template showing required env vars (committed) |
-| ~~`backend/supabase/schema.sql`~~ | ✅ Done |
+| ~~`frontend/.env.local`~~ | ✅ Done |
+| ~~`frontend/.env.example`~~ | ✅ Done |
+| ~~`backend/supabase/schema.sql`~~ | ✅ Done (split into 01-05) |
 | ~~`backend/supabase/seed.sql`~~ | ✅ Done |
+| ~~`backend/supabase/create-demo-users.mjs`~~ | ✅ Done |
+| ~~`backend/README.md`~~ | ✅ Done |
 
 ## Files to Modify
 
@@ -640,5 +649,5 @@ SQL files live in `backend/supabase/`.
 | `frontend/src/services/transferService.js` | Full rewrite |
 | `frontend/src/App.jsx` | Async auth, session persistence |
 | `frontend/src/components/*Page.jsx` (7 pages) | `useAsyncData` + loading/error states |
-| `frontend/package.json` | Add `@supabase/supabase-js` |
-| `.gitignore` | Add `.env.local` |
+| ~~`frontend/package.json`~~ | ✅ Done — added `@supabase/supabase-js` |
+| ~~`.gitignore`~~ | ✅ Done — added `.env.local`, Supabase CLI `.temp` |
