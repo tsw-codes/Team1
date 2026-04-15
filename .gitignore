@@ -1,2 +1,5 @@
 # PDFs
 *.pdf
+
+# Supabase CLI local config
+/supabase/.temp
