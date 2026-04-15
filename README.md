@@ -1,111 +1,70 @@
-# Team 1 - Inventory Management App
+# Team 1 - MEC2 Inventory Management System
 
-This repository contains an in-progress inventory management web application built with React and Vite.
+Inventory management web app for MEC2, built with React + Supabase.
 
-## Project Status (Done So Far)
-
-### Completed foundation
-- Frontend app bootstrapped with Vite + React.
-- Client-side routing implemented with `react-router-dom`.
-- Tailwind Vite plugin added to project setup.
-- Core app shell and shared navigation/header implemented.
-
-### Authentication and account flow
-- Mock login flow is implemented with role-based users.
-- Protected routes are in place (unauthenticated users are redirected to login).
-- Account page is implemented with:
-	- View signed-in username
-	- Log out action
-	- Change password navigation
-- Change password page is implemented with:
-	- Required-field checks
-	- Password strength rules
-	- New password confirmation/match checks
-	- Success/error feedback states
-
-### Role permissions
-- Role permission model is implemented in `frontend/src/auth/permissions.js`.
-- Roles currently mocked:
-	- `admin`
-	- `projectManager`
-	- `warehouseManager`
-	- `logisticsAssociate`
-- Home page actions are filtered based on role permissions.
-
-### Implemented pages and UX
-- Login page
-- Home dashboard with permission-gated action tiles
-- Account page
-- Change password page
-- Inventory page with:
-	- Search
-	- Filters (project/category/status)
-	- Summary cards
-	- Item detail panel/modal
-	- Permission-gated cost/actions in detail view
-- Receive inventory page with:
-	- Delivery and item entry forms
-	- Validation + first-error scroll behavior
-	- Add/remove item rows
-	- Document upload/scan preview UI
-- Request material page with:
-	- Request metadata form
-	- Multi-item request builder
-	- Warehouse-based item selection
-	- Quantity validation against available mock inventory
-
-### Mock data available
-- Mock users and roles
-- Mock inventory dataset
-- Mock request dataset (pending + fulfilled examples)
-
-## In Progress / Not Yet Implemented
-
-- Backend/API integration is not connected yet.
-- Database persistence is not connected yet.
-- Several action buttons are currently placeholders (alerts/UI only), such as:
-	- Save Draft
-	- Confirm Receipt
-	- Submit Request
-	- Adjust/Transfer/Create Shipment actions on inventory detail
-- Manifest workflow file exists but is only scaffolded and not completed.
-- Automated tests are not set up yet.
-
-## Tech Stack
-
-- React 19
-- Vite
-- React Router
-- Motion
-- Tailwind CSS (via Vite plugin)
-- ESLint
-
-## Local Development
-
-From the `frontend` directory:
+## Quick Start
 
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
 
-Then open the local Vite URL shown in the terminal.
+By default the app runs with **mock data** — no backend setup needed.
 
-## Mock Login Accounts
+### Switching to Live Database
 
-Current demo credentials from the mock user file:
+1. Copy `frontend/.env.example` to `frontend/.env.local`
+2. Set `VITE_USE_MOCK=false`
+3. Add the Supabase URL and anon key (ask Edmond for credentials)
+4. `npm run dev`
 
-- Admin: username `admin`, password `admin`
-- Project Manager: username `pm`, password `pm`
-- Warehouse Manager: username `wm`, password `wm`
-- Logistics Associate: username `la`, password `la`
+## Demo Accounts
+
+**Mock mode** (`VITE_USE_MOCK=true`):
+
+| Username | Password | Role |
+|----------|----------|------|
+| admin | admin | Admin |
+| pm | pm | Project Manager |
+| wm | wm | Warehouse Manager |
+| la | la | Logistics Associate |
+| lf | lf | Logistics Foreman |
+
+**Live mode** (`VITE_USE_MOCK=false`):
+
+| Username | Password | Role |
+|----------|----------|------|
+| admin | admin123 | Admin |
+| pm | pm123 | Project Manager |
+| wm | wm123 | Warehouse Manager |
+| la | la123 | Logistics Associate |
+| lf | lf123 | Logistics Foreman |
+
+## Tech Stack
+
+- **Frontend:** React 19, Vite, Tailwind CSS, React Router, Motion
+- **Backend:** Supabase (Postgres, Auth, REST API)
+- **No custom backend server** — frontend calls Supabase directly via the JS SDK
 
 ## Project Structure
 
-- `frontend/src/components`: page and UI components
-- `frontend/src/auth`: mock users and role permissions
-- `frontend/src/data`: mock inventory and request data
+```
+frontend/
+  src/
+    components/     # Page components
+    services/       # Data layer (mock/Supabase toggle) — see services/README.md
+    hooks/          # useAsyncData hook
+    lib/            # Supabase client
+    auth/           # Mock users + role permissions
+    data/           # Mock datasets
+    utils/          # Case conversion, date utilities
+backend/
+  supabase/         # SQL schema, seed data, demo user script
+docs/
+  backend-integration-plan.md   # Architecture + implementation plan
+```
 
-## Notes
+## Service Layer
 
-This README reflects the current state of the ongoing class project and will be updated as backend integration and remaining workflows are completed.
+Frontend devs: see `frontend/src/services/README.md` for the full API reference. All service functions are async and return camelCase objects. You never need to import or know about Supabase.
