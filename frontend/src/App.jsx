@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import './App.css'
@@ -17,8 +17,7 @@ import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
 
 import { getPermissionsForRole } from './auth/permissions'
-import { authenticateUser, updateUserPassword } from './services/authService'
-import Toast from './components/Toast'
+import { authenticateUser, updateUserPassword, signOut, getCurrentSession, onAuthStateChange } from './services/authService'
 
 const pageVariants = {
   enter: (direction) => ({
@@ -76,6 +75,28 @@ function App() {
   const [changePasswordError, setChangePasswordError] = useState('')
   const [changePasswordSuccess, setChangePasswordSuccess] = useState('')
 
+  // Restore session on page refresh
+  useEffect(() => {
+    getCurrentSession().then((profile) => {
+      if (profile) {
+        setCurrentUser(profile)
+        setIsLoggedIn(true)
+      }
+    })
+  }, [])
+
+  // Listen for auth state changes (token expiry, sign out from another tab)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        setIsLoggedIn(false)
+        setCurrentUser(null)
+        navigate('/login')
+      }
+    })
+    return unsubscribe
+  }, [navigate])
+
   function showAccountToast(message, type = 'success') {
     setAccountToast({ message, type })
 
@@ -97,24 +118,34 @@ function App() {
     }
   }
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault()
 
-    const validUser = authenticateUser(loginForm.username, loginForm.password)
+    try {
+      const validUser = await authenticateUser(loginForm.username, loginForm.password)
 
-    if (validUser) {
-      setCurrentUser(validUser)
-      setLoginError('')
-      setIsLoggedIn(true)
-      setNavDirection('forward')
-      navigate('/home')
-      return
+      if (validUser) {
+        setCurrentUser(validUser)
+        setLoginError('')
+        setIsLoggedIn(true)
+        setNavDirection('forward')
+        navigate('/home')
+        return
+      }
+
+      setLoginError('Invalid username or password.')
+    } catch (err) {
+      setLoginError(err.message || 'Something went wrong. Please try again.')
     }
-
-    setLoginError('Invalid username or password.')
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await signOut()
+    } catch (err) {
+      console.error('Sign out error:', err.message)
+    }
+
     setIsLoggedIn(false)
     setCurrentUser(null)
 
@@ -181,7 +212,7 @@ function App() {
     }
   }
 
-  function handleChangePasswordSubmit(e) {
+  async function handleChangePasswordSubmit(e) {
     e.preventDefault()
 
     const { currentPassword, newPassword, confirmNewPassword } = changePasswordForm
@@ -189,12 +220,6 @@ function App() {
     if (!currentPassword || !newPassword || !confirmNewPassword) {
       setChangePasswordSuccess('')
       setChangePasswordError('Please complete all password fields.')
-      return
-    }
-
-    if (currentPassword !== currentUser.password) {
-      setChangePasswordSuccess('')
-      setChangePasswordError('Current password is incorrect.')
       return
     }
 
@@ -223,37 +248,33 @@ function App() {
       return
     }
 
-    const updatedUser = updateUserPassword(currentUser.id, newPassword)
+    try {
+      const updatedUser = await updateUserPassword(currentUser.id, currentPassword, newPassword)
 
-    if (!updatedUser) {
+      if (!updatedUser) {
+        setChangePasswordSuccess('')
+        setChangePasswordError('Current password is incorrect.')
+        return
+      }
+
+      setCurrentUser(updatedUser)
+
+      setChangePasswordError('')
       setChangePasswordSuccess('')
-      setChangePasswordError('Unable to update password.')
-      return
+
+      setChangePasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmNewPassword: '',
+      })
+
+      showAccountToast('Password changed successfully.')
+      setNavDirection('back')
+      navigate('/account')
+    } catch (err) {
+      setChangePasswordSuccess('')
+      setChangePasswordError(err.message || 'Unable to update password.')
     }
-
-    setCurrentUser((prev) => ({
-      ...prev,
-      ...updatedUser,
-      password: newPassword,
-    }))
-
-    setLoginForm((prev) => ({
-      ...prev,
-      password: newPassword,
-    }))
-
-    setChangePasswordError('')
-    setChangePasswordSuccess('')
-
-    setChangePasswordForm({
-      currentPassword: '',
-      newPassword: '',
-      confirmNewPassword: '',
-    })
-
-    showAccountToast('Password changed successfully.')
-    setNavDirection('back')
-    navigate('/account')
   }
 
   function handleBackToAccount() {
