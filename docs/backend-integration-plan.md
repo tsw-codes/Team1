@@ -591,9 +591,9 @@ SQL files live in `backend/supabase/`.
 1. ✅ `authService.js` + `App.jsx` auth flow
 2. ✅ `projectService.js` (locations/projects — referenced by everything)
 3. ✅ `inventoryService.js`
-4. `requestService.js`
-5. `manifestService.js`
-6. `transferService.js`
+4. ✅ `requestService.js`
+5. ✅ `manifestService.js`
+6. ✅ `transferService.js`
 7. `storageService.js` (new — packing slip uploads)
 
 **Auth rewrite decisions:**
@@ -653,9 +653,9 @@ SQL files live in `backend/supabase/`.
 | ~~`frontend/src/services/authService.js`~~ | ✅ Done |
 | ~~`frontend/src/services/projectService.js`~~ | ✅ Done |
 | ~~`frontend/src/services/inventoryService.js`~~ | ✅ Done |
-| `frontend/src/services/requestService.js` | Full rewrite |
-| `frontend/src/services/manifestService.js` | Full rewrite |
-| `frontend/src/services/transferService.js` | Full rewrite |
+| ~~`frontend/src/services/requestService.js`~~ | ✅ Done |
+| ~~`frontend/src/services/manifestService.js`~~ | ✅ Done |
+| ~~`frontend/src/services/transferService.js`~~ | ✅ Done |
 | ~~`frontend/src/App.jsx`~~ | ✅ Done — async auth, session persistence |
 | `frontend/src/components/*Page.jsx` (7 pages) | `useAsyncData` + loading/error states |
 | ~~`frontend/package.json`~~ | ✅ Done — added `@supabase/supabase-js` |
