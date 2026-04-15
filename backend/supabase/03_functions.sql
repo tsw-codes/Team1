@@ -45,7 +45,7 @@ BEGIN
   NEW.total_cost = NEW.quantity * NEW.unit_cost;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 CREATE TRIGGER inventory_before_insert
   BEFORE INSERT ON inventory_items
@@ -71,7 +71,7 @@ BEGIN
   WHERE id LIKE 'RQ-%';
   RETURN 'RQ-' || next_num;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 -- Generate next manifest ID with type prefix (MO-1001, MR-1001, MW-1001)
 CREATE OR REPLACE FUNCTION generate_manifest_id(manifest_type TEXT)
@@ -92,7 +92,7 @@ BEGIN
   WHERE id LIKE prefix || '-%';
   RETURN prefix || '-' || next_num;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 -- Generate next transfer ID with type prefix (TO-1001, TR-1001, TW-1001)
 CREATE OR REPLACE FUNCTION generate_transfer_id(transfer_type TEXT)
@@ -113,7 +113,7 @@ BEGIN
   WHERE id LIKE prefix || '-%';
   RETURN prefix || '-' || next_num;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 -- Generate next adjustment ID (ADJ-1001, ADJ-1002, ...)
 CREATE OR REPLACE FUNCTION generate_adjustment_id()
@@ -126,7 +126,7 @@ BEGIN
   WHERE id LIKE 'ADJ-%';
   RETURN 'ADJ-' || next_num;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 
 -- --------------------------------------------------------
@@ -211,4 +211,4 @@ BEGIN
     'newStatus', v_new_status
   );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;

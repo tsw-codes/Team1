@@ -1,21 +1,178 @@
 -- ============================================================
--- MEC2 Inventory Management System — Validation Triggers
+-- MEC2 Inventory Management System — Security Fixes
 -- ============================================================
--- Run order: 04 (after functions)
--- Enforces business rules at the database level:
---   - Workflow state transitions
---   - Role-type validation
---   - Inventory auto-adjustment on ship/receive
---
--- All error messages are human-readable for frontend display.
+-- Fixes Supabase linter warnings:
+--   1. Views: add security_invoker = true (so RLS applies to querying user)
+--   2. Functions: add SET search_path = public (prevent search path injection)
 -- ============================================================
 
 
 -- --------------------------------------------------------
--- WORKFLOW STATE TRANSITIONS
+-- FIX 1: VIEWS — Enable security_invoker
 -- --------------------------------------------------------
+-- Without this, views bypass RLS and use the view creator's permissions.
 
--- Manifests: can only be created for approved requests (or no request for returns/WH transfers)
+ALTER VIEW inventory_view SET (security_invoker = true);
+ALTER VIEW requests_view SET (security_invoker = true);
+ALTER VIEW manifests_view SET (security_invoker = true);
+ALTER VIEW transfers_view SET (security_invoker = true);
+
+
+-- --------------------------------------------------------
+-- FIX 2: FUNCTIONS — Set search_path = public
+-- --------------------------------------------------------
+-- handle_new_user already has this. Adding to all others.
+
+-- Computed fields trigger
+CREATE OR REPLACE FUNCTION update_inventory_computed_fields()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  NEW.total_cost = NEW.quantity * NEW.unit_cost;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- ID generators
+CREATE OR REPLACE FUNCTION generate_request_id()
+RETURNS TEXT AS $$
+DECLARE next_num INTEGER;
+BEGIN
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM requests
+  WHERE id LIKE 'RQ-%';
+  RETURN 'RQ-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE OR REPLACE FUNCTION generate_manifest_id(manifest_type TEXT)
+RETURNS TEXT AS $$
+DECLARE
+  prefix TEXT;
+  next_num INTEGER;
+BEGIN
+  prefix := CASE manifest_type
+    WHEN 'outbound'           THEN 'MO'
+    WHEN 'return'             THEN 'MR'
+    WHEN 'warehouse_transfer' THEN 'MW'
+    ELSE 'MX'
+  END;
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM manifests
+  WHERE id LIKE prefix || '-%';
+  RETURN prefix || '-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE OR REPLACE FUNCTION generate_transfer_id(transfer_type TEXT)
+RETURNS TEXT AS $$
+DECLARE
+  prefix TEXT;
+  next_num INTEGER;
+BEGIN
+  prefix := CASE transfer_type
+    WHEN 'outbound'           THEN 'TO'
+    WHEN 'return'             THEN 'TR'
+    WHEN 'warehouse_transfer' THEN 'TW'
+    ELSE 'TX'
+  END;
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM transfers
+  WHERE id LIKE prefix || '-%';
+  RETURN prefix || '-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE OR REPLACE FUNCTION generate_adjustment_id()
+RETURNS TEXT AS $$
+DECLARE next_num INTEGER;
+BEGIN
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM inventory_adjustments
+  WHERE id LIKE 'ADJ-%';
+  RETURN 'ADJ-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- Atomic inventory adjustment RPC
+CREATE OR REPLACE FUNCTION create_inventory_adjustment(
+  p_inventory_item_id INTEGER,
+  p_adjustment_type   TEXT,
+  p_quantity_value     INTEGER,
+  p_reason            TEXT,
+  p_adjusted_by       TEXT
+)
+RETURNS JSON AS $$
+DECLARE
+  v_prev_qty   INTEGER;
+  v_new_qty    INTEGER;
+  v_change     INTEGER;
+  v_new_status TEXT;
+  v_adj_id     TEXT;
+BEGIN
+  SELECT quantity INTO v_prev_qty
+  FROM inventory_items
+  WHERE id = p_inventory_item_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Inventory item % not found', p_inventory_item_id;
+  END IF;
+
+  CASE p_adjustment_type
+    WHEN 'increase' THEN
+      v_new_qty := v_prev_qty + p_quantity_value;
+      v_change  := p_quantity_value;
+    WHEN 'decrease' THEN
+      v_new_qty := GREATEST(v_prev_qty - p_quantity_value, 0);
+      v_change  := v_prev_qty - v_new_qty;
+    WHEN 'set' THEN
+      v_new_qty := p_quantity_value;
+      v_change  := p_quantity_value - v_prev_qty;
+    WHEN 'returned' THEN
+      v_new_qty := GREATEST(v_prev_qty - p_quantity_value, 0);
+      v_change  := v_prev_qty - v_new_qty;
+    ELSE
+      RAISE EXCEPTION 'Invalid adjustment type: %', p_adjustment_type;
+  END CASE;
+
+  v_new_status := CASE
+    WHEN v_new_qty <= 0  THEN 'Out of Stock'
+    WHEN v_new_qty <= 10 THEN 'Low Stock'
+    ELSE 'Available'
+  END;
+
+  UPDATE inventory_items
+  SET quantity = v_new_qty,
+      status   = v_new_status
+  WHERE id = p_inventory_item_id;
+
+  v_adj_id := generate_adjustment_id();
+
+  INSERT INTO inventory_adjustments (
+    id, inventory_item_id, adjustment_type,
+    quantity_change, previous_quantity, new_quantity,
+    reason, adjusted_by
+  ) VALUES (
+    v_adj_id, p_inventory_item_id, p_adjustment_type,
+    v_change, v_prev_qty, v_new_qty,
+    p_reason, p_adjusted_by
+  );
+
+  RETURN json_build_object(
+    'adjustmentId', v_adj_id,
+    'previousQuantity', v_prev_qty,
+    'newQuantity', v_new_qty,
+    'newStatus', v_new_status
+  );
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- Workflow validation triggers
 CREATE OR REPLACE FUNCTION validate_manifest_insert()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -38,12 +195,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER manifests_validate_insert
-  BEFORE INSERT ON manifests
-  FOR EACH ROW EXECUTE FUNCTION validate_manifest_insert();
-
-
--- Transfers: can only be created for finalized manifests
 CREATE OR REPLACE FUNCTION validate_transfer_insert()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -66,13 +217,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER transfers_validate_insert
-  BEFORE INSERT ON transfers
-  FOR EACH ROW EXECUTE FUNCTION validate_transfer_insert();
-
-
--- Transfers: enforce valid status transitions
--- ready_to_ship → in_transit → completed OR exception
 CREATE OR REPLACE FUNCTION validate_transfer_status_change()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -103,13 +247,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER transfers_validate_status_change
-  BEFORE UPDATE ON transfers
-  FOR EACH ROW EXECUTE FUNCTION validate_transfer_status_change();
-
-
--- Requests: enforce valid status transitions
--- pending_approval → approved OR rejected
 CREATE OR REPLACE FUNCTION validate_request_status_change()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -134,18 +271,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER requests_validate_status_change
-  BEFORE UPDATE ON requests
-  FOR EACH ROW EXECUTE FUNCTION validate_request_status_change();
-
-
--- --------------------------------------------------------
--- ROLE-TYPE VALIDATION
--- --------------------------------------------------------
--- Checks that the user's role matches the type of operation.
--- Uses the profile of the currently authenticated Supabase user.
-
--- Helper: get current user's role
+-- Role validation
 CREATE OR REPLACE FUNCTION get_current_user_role()
 RETURNS TEXT AS $$
 DECLARE
@@ -163,8 +289,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-
--- Manifests: role must match manifest type
 CREATE OR REPLACE FUNCTION validate_manifest_role()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -172,7 +296,6 @@ DECLARE
 BEGIN
   v_role := get_current_user_role();
 
-  -- Admin can do everything
   IF v_role = 'admin' THEN RETURN NEW; END IF;
 
   CASE NEW.manifest_type_value
@@ -196,12 +319,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER manifests_validate_role
-  BEFORE INSERT ON manifests
-  FOR EACH ROW EXECUTE FUNCTION validate_manifest_role();
-
-
--- Transfers: role must match transfer type for ship/receive actions
 CREATE OR REPLACE FUNCTION validate_transfer_role()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -213,10 +330,8 @@ BEGIN
 
   v_role := get_current_user_role();
 
-  -- Admin can do everything
   IF v_role = 'admin' THEN RETURN NEW; END IF;
 
-  -- Shipping (status changing to in_transit)
   IF TG_OP = 'UPDATE' AND NEW.status_value = 'in_transit' THEN
     CASE NEW.transfer_type_value
       WHEN 'outbound' THEN
@@ -234,7 +349,6 @@ BEGIN
     END CASE;
   END IF;
 
-  -- Receiving (status changing to completed or exception)
   IF TG_OP = 'UPDATE' AND NEW.status_value IN ('completed', 'exception') THEN
     CASE NEW.transfer_type_value
       WHEN 'outbound' THEN
@@ -256,12 +370,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER transfers_validate_role
-  BEFORE INSERT OR UPDATE ON transfers
-  FOR EACH ROW EXECUTE FUNCTION validate_transfer_role();
-
-
--- Inventory adjustments: role must match location type
 CREATE OR REPLACE FUNCTION validate_adjustment_role()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -270,7 +378,6 @@ DECLARE
 BEGIN
   v_role := get_current_user_role();
 
-  -- Admin can adjust anything
   IF v_role = 'admin' THEN RETURN NEW; END IF;
 
   SELECT l.type INTO v_location_type
@@ -292,19 +399,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER adjustments_validate_role
-  BEFORE INSERT ON inventory_adjustments
-  FOR EACH ROW EXECUTE FUNCTION validate_adjustment_role();
-
-
--- --------------------------------------------------------
--- INVENTORY AUTO-ADJUSTMENT ON SHIP/RECEIVE
--- --------------------------------------------------------
--- When a transfer status changes:
---   → in_transit (shipped): decrease source location quantities
---   → completed (received): increase destination location quantities
--- Adjustments are logged in inventory_adjustments automatically.
-
+-- Auto-adjustment on transfer
 CREATE OR REPLACE FUNCTION auto_adjust_inventory_on_transfer()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -321,7 +416,6 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- SHIPPED: decrease source location quantities
   IF NEW.status_value = 'in_transit' THEN
     v_source_loc := NEW.source_location_value;
 
@@ -357,7 +451,6 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- RECEIVED: increase destination location quantities
   IF NEW.status_value IN ('completed', 'exception') THEN
     v_dest_loc := NEW.destination_location_value;
 
@@ -396,7 +489,3 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
-
-CREATE TRIGGER transfers_auto_adjust_inventory
-  AFTER UPDATE ON transfers
-  FOR EACH ROW EXECUTE FUNCTION auto_adjust_inventory_on_transfer();
