@@ -1,4 +1,5 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
+import { snakeToCamel } from '../utils/caseUtils'
 import {
   mockInventory,
   requestableInventory,
@@ -6,27 +7,6 @@ import {
 import { mockInventoryAdjustments } from "../data/mockInventoryAdjustements"
 import { createAuditTimestamp } from "../utils/dateUtils"
 import { getLocationByValue } from "./projectService"
-
-/**
- * Maps a Supabase inventory_view row (snake_case) to the frontend shape (camelCase).
- */
-function mapInventoryRow(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    sku: row.sku,
-    quantity: row.quantity,
-    unit: row.unit,
-    project: row.project,
-    locationValue: row.location_value,
-    location: row.location,
-    status: row.status,
-    category: row.category,
-    unitCost: Number(row.unit_cost),
-    totalCost: Number(row.total_cost),
-    updatedAt: row.updated_at,
-  }
-}
 
 /**
  * Returns all warehouse location values (used to filter requestable inventory).
@@ -53,7 +33,7 @@ export async function getAllInventory() {
     .order('id')
 
   if (error) throw new Error('Failed to load inventory.')
-  return data.map(mapInventoryRow)
+  return snakeToCamel(data)
 }
 
 /**
@@ -79,7 +59,7 @@ export async function getRequestableInventory() {
     .order('id')
 
   if (error) throw new Error('Failed to load requestable inventory.')
-  return data.map(mapInventoryRow)
+  return snakeToCamel(data)
 }
 
 /**
@@ -99,7 +79,7 @@ export async function getRequestableInventoryForWarehouse(sourceWarehouseValue) 
     .order('id')
 
   if (error) throw new Error('Failed to load warehouse inventory.')
-  return data.map(mapInventoryRow)
+  return snakeToCamel(data)
 }
 
 /**
@@ -121,7 +101,7 @@ export async function findRequestableInventoryItemById(id) {
     .single()
 
   if (error) return null
-  return mapInventoryRow(data)
+  return snakeToCamel(data)
 }
 
 /**
@@ -139,7 +119,7 @@ export async function findInventoryItemById(id) {
     .single()
 
   if (error) return null
-  return mapInventoryRow(data)
+  return snakeToCamel(data)
 }
 
 /**
@@ -201,7 +181,7 @@ export async function getInventoryForReturnSource(sourceLocationValue) {
     .order('id')
 
   if (error) throw new Error('Failed to load inventory for location.')
-  return data.map(mapInventoryRow)
+  return snakeToCamel(data)
 }
 
 /**
@@ -221,7 +201,7 @@ export async function getInventoryForWarehouseSource(sourceLocationValue) {
     .order('id')
 
   if (error) throw new Error('Failed to load warehouse inventory.')
-  return data.map(mapInventoryRow)
+  return snakeToCamel(data)
 }
 
 /**
