@@ -11,6 +11,18 @@
 
 
 -- ============================================================
+-- 0. DISABLE ROLE VALIDATION TRIGGERS FOR SEEDING
+-- ============================================================
+-- The role validation triggers check auth.uid() which doesn't
+-- exist when running SQL directly. Disable them for seeding,
+-- re-enable at the end.
+
+ALTER TABLE manifests DISABLE TRIGGER manifests_validate_role;
+ALTER TABLE transfers DISABLE TRIGGER transfers_validate_role;
+ALTER TABLE inventory_adjustments DISABLE TRIGGER adjustments_validate_role;
+
+
+-- ============================================================
 -- 1. LOCATIONS
 -- ============================================================
 
@@ -240,3 +252,12 @@ INSERT INTO transfer_items (id, transfer_id, inventory_item_id, manifest_quantit
 --       role: 'admin'
 --     }
 --   })
+
+
+-- ============================================================
+-- 11. RE-ENABLE ROLE VALIDATION TRIGGERS
+-- ============================================================
+
+ALTER TABLE manifests ENABLE TRIGGER manifests_validate_role;
+ALTER TABLE transfers ENABLE TRIGGER transfers_validate_role;
+ALTER TABLE inventory_adjustments ENABLE TRIGGER adjustments_validate_role;

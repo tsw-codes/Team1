@@ -11,7 +11,9 @@
 -- PROFILE AUTO-CREATION
 -- --------------------------------------------------------
 
--- Auto-create profile when a new auth user is created
+-- Auto-create profile when a new auth user is created.
+-- SET search_path = public ensures the function can find the
+-- profiles table even when called from auth schema context.
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -19,12 +21,12 @@ BEGIN
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
-    COALESCE(NEW.raw_user_meta_data->>'name', ''),
-    COALESCE(NEW.raw_user_meta_data->>'role', 'logisticsAssociate')
+    COALESCE(NULLIF(NEW.raw_user_meta_data->>'name', ''), 'Unknown'),
+    COALESCE(NULLIF(NEW.raw_user_meta_data->>'role', ''), 'logisticsAssociate')
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
