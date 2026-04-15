@@ -8,7 +8,7 @@
 
 
 -- Inventory view: maps location_detail to frontend's 'location' field
-CREATE VIEW inventory_view AS
+CREATE VIEW inventory_view WITH (security_invoker = true) AS
 SELECT
   id, name, sku, quantity, unit, project,
   location_value,
@@ -18,7 +18,7 @@ SELECT
 FROM inventory_items;
 
 -- Requests view: joins location/project labels and formats display values
-CREATE VIEW requests_view AS
+CREATE VIEW requests_view WITH (security_invoker = true) AS
 SELECT
   r.id, r.status_value, r.location_value, r.location_type,
   r.project_value, r.requested_by, r.created_at,
@@ -45,7 +45,7 @@ LEFT JOIN projects  proj ON r.project_value  = proj.value
 LEFT JOIN locations sw   ON r.source_warehouse_value = sw.value;
 
 -- Manifests view: joins source/destination location and project labels
-CREATE VIEW manifests_view AS
+CREATE VIEW manifests_view WITH (security_invoker = true) AS
 SELECT
   m.id, m.manifest_type_value, m.status_value,
   m.request_id, m.requested_by, m.approved_by, m.approved_at,
@@ -73,7 +73,7 @@ LEFT JOIN locations src  ON m.source_location_value = src.value
 LEFT JOIN locations dst  ON m.destination_location_value = dst.value;
 
 -- Transfers view: joins all location/project labels
-CREATE VIEW transfers_view AS
+CREATE VIEW transfers_view WITH (security_invoker = true) AS
 SELECT
   t.id, t.manifest_id, t.request_id,
   t.requested_by, t.approved_by, t.approved_at,
