@@ -395,7 +395,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER transfers_auto_adjust_inventory
   AFTER UPDATE ON transfers
