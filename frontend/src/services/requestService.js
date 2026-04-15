@@ -67,19 +67,10 @@ function normalizeRequest(record) {
   }
 }
 
-/**
- * Fetches a request from Supabase with its nested request_items.
- * Returns the camelCase-converted object with items attached.
- */
-async function fetchRequestWithItems(query) {
-  const { data, error } = await query.select(`
-    *,
-    request_items (id, inventory_item_id, requested_quantity)
-  `)
+const REQUEST_SELECT = '*, request_items (id, inventory_item_id, requested_quantity)'
 
-  if (error) throw new Error(error.message)
-  if (!data) return null
-
+function mapRequestRows(data) {
+  if (!data) return []
   const rows = Array.isArray(data) ? data : [data]
 
   return rows.map((row) => {
@@ -97,10 +88,13 @@ async function fetchRequestWithItems(query) {
 export async function getAllRequests() {
   if (USE_MOCK) return mockRequests
 
-  const results = await fetchRequestWithItems(
-    supabase.from('requests_view').order('created_at', { ascending: false })
-  )
-  return results
+  const { data, error } = await supabase
+    .from('requests_view')
+    .select(REQUEST_SELECT)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return mapRequestRows(data)
 }
 
 /**
@@ -113,10 +107,14 @@ export async function getRequestsPendingApproval() {
     )
   }
 
-  const results = await fetchRequestWithItems(
-    supabase.from('requests_view').eq('status_value', 'pending_approval').order('created_at', { ascending: false })
-  )
-  return results
+  const { data, error } = await supabase
+    .from('requests_view')
+    .select(REQUEST_SELECT)
+    .eq('status_value', 'pending_approval')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return mapRequestRows(data)
 }
 
 /**
@@ -129,10 +127,14 @@ export async function getApprovedRequests() {
     )
   }
 
-  const results = await fetchRequestWithItems(
-    supabase.from('requests_view').eq('status_value', 'approved').order('created_at', { ascending: false })
-  )
-  return results
+  const { data, error } = await supabase
+    .from('requests_view')
+    .select(REQUEST_SELECT)
+    .eq('status_value', 'approved')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return mapRequestRows(data)
 }
 
 /**
@@ -141,10 +143,14 @@ export async function getApprovedRequests() {
 export async function findRequestById(id) {
   if (USE_MOCK) return getRequestById(id)
 
-  const results = await fetchRequestWithItems(
-    supabase.from('requests_view').eq('id', id)
-  )
-  return results?.[0] || null
+  const { data, error } = await supabase
+    .from('requests_view')
+    .select(REQUEST_SELECT)
+    .eq('id', id)
+    .single()
+
+  if (error) return null
+  return mapRequestRows(data)?.[0] || null
 }
 
 /**

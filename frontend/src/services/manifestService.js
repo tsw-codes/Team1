@@ -62,21 +62,10 @@ function mapManifestRow(row) {
   return converted
 }
 
-/**
- * Fetches manifests from Supabase with nested items + inventory details.
- */
-async function fetchManifestsWithItems(query) {
-  const { data, error } = await query.select(`
-    *,
-    manifest_items (
-      id, inventory_item_id, manifest_quantity,
-      inventory_items (name, sku, unit)
-    )
-  `)
+const MANIFEST_SELECT = '*, manifest_items (id, inventory_item_id, manifest_quantity, inventory_items (name, sku, unit))'
 
-  if (error) throw new Error(error.message)
+function mapManifestRows(data) {
   if (!data) return []
-
   const rows = Array.isArray(data) ? data : [data]
   return rows.map(mapManifestRow)
 }
@@ -87,9 +76,13 @@ async function fetchManifestsWithItems(query) {
 export async function getAllManifests() {
   if (USE_MOCK) return mockManifests
 
-  return fetchManifestsWithItems(
-    supabase.from('manifests_view').order('created_at', { ascending: false })
-  )
+  const { data, error } = await supabase
+    .from('manifests_view')
+    .select(MANIFEST_SELECT)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return mapManifestRows(data)
 }
 
 /**
@@ -98,10 +91,14 @@ export async function getAllManifests() {
 export async function findManifestById(id) {
   if (USE_MOCK) return getManifestById(id)
 
-  const results = await fetchManifestsWithItems(
-    supabase.from('manifests_view').eq('id', id)
-  )
-  return results?.[0] || null
+  const { data, error } = await supabase
+    .from('manifests_view')
+    .select(MANIFEST_SELECT)
+    .eq('id', id)
+    .single()
+
+  if (error) return null
+  return mapManifestRows(data)?.[0] || null
 }
 
 /**
@@ -127,9 +124,14 @@ export async function getAvailableManifestsForTransfer(permissions = []) {
     })
   }
 
-  const results = await fetchManifestsWithItems(
-    supabase.from('manifests_view').eq('status_value', 'finalized').order('created_at', { ascending: false })
-  )
+  const { data, error } = await supabase
+    .from('manifests_view')
+    .select(MANIFEST_SELECT)
+    .eq('status_value', 'finalized')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  const results = mapManifestRows(data)
 
   return results.filter((manifest) => {
     const requiredPermission = transferPermissionMap[manifest.manifestType]

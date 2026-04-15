@@ -61,22 +61,10 @@ function mapTransferRow(row) {
   return converted
 }
 
-/**
- * Fetches transfers from Supabase with nested items + inventory details.
- */
-async function fetchTransfersWithItems(query) {
-  const { data, error } = await query.select(`
-    *,
-    transfer_items (
-      id, inventory_item_id, manifest_quantity,
-      shipped_quantity, received_quantity, variance_reason,
-      inventory_items (name, sku, unit)
-    )
-  `)
+const TRANSFER_SELECT = '*, transfer_items (id, inventory_item_id, manifest_quantity, shipped_quantity, received_quantity, variance_reason, inventory_items (name, sku, unit))'
 
-  if (error) throw new Error(error.message)
+function mapTransferRows(data) {
   if (!data) return []
-
   const rows = Array.isArray(data) ? data : [data]
   return rows.map(mapTransferRow)
 }
@@ -87,9 +75,13 @@ async function fetchTransfersWithItems(query) {
 export async function getAllTransfers() {
   if (USE_MOCK) return mockTransfers
 
-  return fetchTransfersWithItems(
-    supabase.from('transfers_view').order('created_at', { ascending: false })
-  )
+  const { data, error } = await supabase
+    .from('transfers_view')
+    .select(TRANSFER_SELECT)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return mapTransferRows(data)
 }
 
 /**
@@ -98,10 +90,14 @@ export async function getAllTransfers() {
 export async function findTransferById(id) {
   if (USE_MOCK) return getTransferById(id)
 
-  const results = await fetchTransfersWithItems(
-    supabase.from('transfers_view').eq('id', id)
-  )
-  return results?.[0] || null
+  const { data, error } = await supabase
+    .from('transfers_view')
+    .select(TRANSFER_SELECT)
+    .eq('id', id)
+    .single()
+
+  if (error) return null
+  return mapTransferRows(data)?.[0] || null
 }
 
 /**
@@ -118,9 +114,14 @@ export async function getTransfersForPermissions(permissions = []) {
     })
   }
 
-  const results = await fetchTransfersWithItems(
-    supabase.from('transfers_view').in('status_value', ACTIVE_STATUSES).order('created_at', { ascending: false })
-  )
+  const { data, error } = await supabase
+    .from('transfers_view')
+    .select(TRANSFER_SELECT)
+    .in('status_value', ACTIVE_STATUSES)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  const results = mapTransferRows(data)
 
   return results.filter((transfer) => {
     const requiredPermission = transferPermissionMap[transfer.transferType]
