@@ -56,7 +56,7 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
     const projectOptions = rawProjectOptions ?? []
 
     const { data: selectedLocation } = useAsyncData(
-        () => getLocationByValue(deliveryForm.locationValue),
+        () => deliveryForm.locationValue ? getLocationByValue(deliveryForm.locationValue) : null,
         [deliveryForm.locationValue]
     )
 

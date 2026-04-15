@@ -52,27 +52,27 @@ function RequestMaterialPage({ onBack, currentUser }) {
     const { data: locationOptions } = useAsyncData(() => getSiteLocationOptions(), [])
 
     const { data: projectOptions } = useAsyncData(
-        () => getProjectOptionsForLocation(requestForm.locationValue),
+        () => requestForm.locationValue ? getProjectOptionsForLocation(requestForm.locationValue) : null,
         [requestForm.locationValue]
     )
 
     const { data: selectedLocation } = useAsyncData(
-        () => getLocationByValue(requestForm.locationValue),
+        () => requestForm.locationValue ? getLocationByValue(requestForm.locationValue) : null,
         [requestForm.locationValue]
     )
 
     const { data: selectedProject } = useAsyncData(
-        () => getProjectByValue(requestForm.projectValue),
+        () => requestForm.projectValue ? getProjectByValue(requestForm.projectValue) : null,
         [requestForm.projectValue]
     )
 
     const { data: selectedSourceWarehouse } = useAsyncData(
-        () => getLocationByValue(requestForm.sourceWarehouseValue),
+        () => requestForm.sourceWarehouseValue ? getLocationByValue(requestForm.sourceWarehouseValue) : null,
         [requestForm.sourceWarehouseValue]
     )
 
     const { data: warehouseInventory } = useAsyncData(
-        () => getRequestableInventoryForWarehouse(requestForm.sourceWarehouseValue),
+        () => requestForm.sourceWarehouseValue ? getRequestableInventoryForWarehouse(requestForm.sourceWarehouseValue) : null,
         [requestForm.sourceWarehouseValue]
     )
 
