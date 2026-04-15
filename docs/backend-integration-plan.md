@@ -4,6 +4,12 @@
 
 The frontend is ~90% complete with mock data. A separate team member works on the UI. We need to integrate Supabase as the backend without breaking existing page components. The services layer (`frontend/src/services/`) is the integration point — we rewrite service internals while keeping the same function signatures (made async).
 
+### Working Principles
+
+1. **Edge cases first** — before implementing any feature, we identify and plan for edge cases. No coding until we've thought through failure modes, permission gaps, and data integrity issues.
+2. **Plug-and-play for frontend devs** — teammates who don't know Supabase should never need to learn it. They call clean service functions and get data back. Supabase is an implementation detail hidden behind the services layer.
+3. **Clear error messages** — all DB trigger errors and service errors must be human-readable. Frontend devs should be able to display them directly in a toast.
+
 ---
 
 ## System Architecture
@@ -53,6 +59,10 @@ The frontend is ~90% complete with mock data. A separate team member works on th
 │  │  ── RLS Policies ──────────────────────────────────────   │   │
 │  │  SELECT: all authenticated users (internal app)           │   │
 │  │  INSERT/UPDATE/DELETE: gated by role from profiles        │   │
+│  │                                                           │   │
+│  │  ── Validation Triggers ───────────────────────────────   │   │
+│  │  Workflow state transitions, role-type checks,            │   │
+│  │  inventory auto-adjustment on ship/receive                │   │
 │  │                                                           │   │
 │  │  ── Functions (RPC) ───────────────────────────────────   │   │
 │  │  generate_request_id(), generate_manifest_id(type),       │   │
@@ -194,14 +204,15 @@ The frontend is ~90% complete with mock data. A separate team member works on th
                                │ (API calls still go through)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    LAYER 2: Supabase RLS (DB Gate)           │
+│                    LAYER 2: Supabase RLS + Triggers (DB)     │
 │                                                              │
-│   Row Level Security policies on each table                  │
+│   RLS policies on each table (role-based)                    │
+│   Validation triggers (operation-type-based)                 │
 │   Enforced at the database level — cannot be bypassed        │
 │   This controls WHAT THE USER CAN ACTUALLY DO                │
 │                                                              │
 │   Example: even if someone crafts a direct API call,         │
-│   RLS blocks unauthorized writes                             │
+│   RLS + triggers block unauthorized operations               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -328,9 +339,9 @@ CREATE POLICY "approve_requests" ON requests
 │  │  • WHO adjusted (adjusted_by → username)                 │   │
 │  │  • WHEN (adjusted_at → timestamp)                        │   │
 │  │  • WHAT changed (inventory_item_id)                      │   │
-│  │  • HOW (adjustment_type: increase/decrease/set)          │   │
+│  │  • HOW (adjustment_type: increase/decrease/set/returned) │   │
 │  │  • BY HOW MUCH (previous_qty → new_qty, qty_change)      │   │
-│  │  • WHY (reason: free text)                               │   │
+│  │  • WHY (reason: free text or auto-generated)             │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -406,8 +417,8 @@ CREATE POLICY "approve_requests" ON requests
               │   │   └── variance_reason: "2 rolls damaged in transit"
               │   └── ...
               │
-              └──► inventory_items qty updated
-                   └──► inventory_adjustments logged
+              └──► inventory_items qty updated (auto-trigger)
+                   └──► inventory_adjustments logged (auto-trigger)
 ```
 
 ---
@@ -454,6 +465,85 @@ CREATE POLICY "approve_requests" ON requests
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Plug-and-Play Contract
+
+```
+WHAT FRONTEND DEVS SEE          WHAT THEY DON'T SEE
+──────────────────────           ─────────────────────
+import { getAllRequests }        supabase.from(...)
+  from '../services/             .select(...)
+   requestService'               .eq(...)
+                                 snakeToCamel(...)
+const requests =
+  await getAllRequests()         // returns [{id, statusValue,
+                                //   location, items, ...}]
+```
+
+Rules for the services layer:
+- All functions are async, return camelCase objects
+- All Supabase imports stay inside service files
+- Error handling is done inside services — throw with clear messages
+- Frontend devs never need to know Supabase exists
+
+### Error Handling Pattern
+
+```js
+// Inside service (what frontend devs DON'T write)
+export async function getAllRequests() {
+  const { data, error } = await supabase
+    .from('requests_view')
+    .select('*, request_items(*)')
+
+  if (error) throw new Error(`Failed to load requests: ${error.message}`)
+  return data.map(snakeToCamel)
+}
+
+// In page component (what frontend devs DO write)
+const { data, loading, error } = useAsyncData(getAllRequests)
+
+if (loading) return <Spinner />
+if (error) return <ErrorMessage message={error.message} />
+// ...render normally
+```
+
+---
+
+## Edge Cases & Data Integrity
+
+These are addressed **during** each step before we write code, not as a separate phase.
+
+### Workflow enforcement ✅ DONE (in schema.sql)
+DB triggers enforce: Request (approved) → Manifest (finalized) → Transfer (ready_to_ship → in_transit → completed/exception). Invalid state transitions are blocked with clear error messages.
+
+### Role enforcement at the database level ✅ DONE (in schema.sql)
+DB triggers check the user's role against the operation type:
+- **Requests**: only logisticsForeman + admin can INSERT
+- **Approve/Reject**: only projectManager + admin can UPDATE request status
+- **Outbound manifests**: only warehouseManager + admin
+- **Return manifests**: only logisticsAssociate + logisticsForeman + admin
+- **Warehouse transfer manifests**: only warehouseManager + admin
+- **Ship outbound/return**: only logisticsAssociate + logisticsForeman + admin
+- **Ship warehouse transfer**: only warehouseManager + admin
+- **Receive at site**: only logisticsAssociate + logisticsForeman + admin
+- **Receive at warehouse**: only warehouseManager + admin
+- **Adjust warehouse inventory**: only warehouseManager + admin
+- **Adjust site inventory**: only logisticsAssociate + logisticsForeman + admin
+- **Admin bypasses all role checks** but NOT workflow state transitions
+
+### Inventory auto-adjustment ✅ DONE (in schema.sql)
+DB triggers on transfer status change:
+- **On ship** (→ in_transit) — source location quantities decrease
+- **On receive** (→ completed/exception) — destination quantities increase by received amount
+- All auto-adjustments logged in `inventory_adjustments` with clear reasons
+
+### Per-step edge cases (address as we build each service)
+- **Auth**: token expiry mid-session, password change invalidating session, duplicate logins
+- **Inventory**: adjusting an item that's "In Transit", concurrent adjustments to same item, quantity going negative
+- **Requests**: editing a request after approval, requesting more than available stock, duplicate requests
+- **Manifests**: manifesting more than requested, source warehouse doesn't have stock, request rejected after manifest created
+- **Transfers**: shipping more than manifested, receiving more than shipped, double-receiving same transfer, network failure mid-receive
+- **Storage**: upload fails halfway, oversized files, wrong file types
+
 ---
 
 ## Implementation Phases
@@ -466,12 +556,13 @@ CREATE POLICY "approve_requests" ON requests
 5. Install SDK: `npm install @supabase/supabase-js`
 6. Create `frontend/src/lib/supabaseClient.js`
 7. Create `frontend/.env.local` with credentials
-8. Add `.env.local` to `.gitignore`
+8. Create `frontend/.env.example` (committed — shows teammates what vars they need)
+9. Add `.env.local` to `.gitignore`
 
 ### Phase 2: Database Schema ✅ DONE
 SQL files live in `backend/supabase/`.
-- `schema.sql` — ✅ all tables, views, triggers, RLS policies, ID generation functions, and atomic inventory adjustment RPC (combined into one file)
-- `seed.sql` — TODO: demo data from existing mock files
+- `schema.sql` — ✅ all tables, views, triggers, RLS policies, ID generation functions, atomic inventory adjustment RPC, workflow validation triggers, role-type validation triggers, and inventory auto-adjustment triggers
+- `seed.sql` — ✅ demo data from existing mock files (7 locations, 9 projects, 11 inventory items, 12 requests, 4 manifests, 4 transfers, all with line items). Added missing MO-1002 manifest that transfer TO-1003 references.
 
 **Decisions made:**
 - `total_cost` uses a trigger instead of `GENERATED ALWAYS AS` (Supabase tooling compatibility issue)
@@ -479,6 +570,11 @@ SQL files live in `backend/supabase/`.
 - `returned` added as inventory adjustment type (wrong inventory flow from 03/03 meeting)
 - Original `createAll.sql` kept in `backend/SQL scripts/` but marked deprecated
 - `@supabase/supabase-js` latest stable is v2.103.0 — no v3 migration needed
+- Workflow enforcement via DB triggers (request→manifest→transfer state machine)
+- Role-type validation via DB triggers (manifest type and transfer type matched against user role)
+- Inventory auto-adjusts on ship (decrease source) and receive (increase destination by received amount)
+- All DB error messages are human-readable for frontend toast display
+- Admin bypasses role checks but NOT workflow state transitions (data integrity)
 
 ### Phase 3: Frontend Utilities
 1. `src/utils/caseUtils.js` — snake/camel transforms
@@ -494,15 +590,27 @@ SQL files live in `backend/supabase/`.
 7. `storageService.js` (new — packing slip uploads)
 
 ### Phase 5: Page Updates (minimal)
-- Add `useAsyncData` + loading states to 7 pages
+- Add `useAsyncData` + loading/error states to 7 pages
 - Make submit handlers async
 
 ### Phase 6: Verification
-1. Auth — login/logout all 5 users, session persistence
+1. Auth — login/logout all 5 users, session persistence, token expiry
 2. Per-page — data loads, filters work, CRUD persists
 3. Full workflow — Request → Approve → Manifest → Transfer → Receive
 4. Permissions — each role sees only allowed actions
 5. Storage — packing slip photo upload
+6. Error handling — disconnect network, verify graceful messages
+7. RLS — attempt unauthorized ops via console, verify blocked
+
+---
+
+## Deferred / Future Work
+
+- **PM email notifications** when material arrives at site (Supabase Edge Function + DB trigger on transfer completion)
+- **Admin pages** — Manage Users (req 4.6.1) and Manage Locations (req 4.6.2) — need frontend pages built
+- **Warehouse bins** — William likes the idea, schema can accommodate later
+- **OCR packing slips** — deprecated in SRS for now
+- **Deployment** — Netlify env vars for Supabase credentials
 
 ---
 
@@ -514,9 +622,11 @@ SQL files live in `backend/supabase/`.
 | `frontend/src/hooks/useAsyncData.js` | Async data loading hook |
 | `frontend/src/utils/caseUtils.js` | snake_case ↔ camelCase transforms |
 | `frontend/src/services/storageService.js` | Packing slip upload/download |
+| `frontend/src/services/README.md` | Service API docs for frontend devs |
 | `frontend/.env.local` | Supabase credentials (gitignored) |
-| ~~`backend/supabase/schema.sql`~~ | ✅ Done — tables, views, triggers, RLS, functions |
-| `backend/supabase/seed.sql` | Demo data for all tables |
+| `frontend/.env.example` | Template showing required env vars (committed) |
+| ~~`backend/supabase/schema.sql`~~ | ✅ Done |
+| ~~`backend/supabase/seed.sql`~~ | ✅ Done |
 
 ## Files to Modify
 
@@ -529,6 +639,6 @@ SQL files live in `backend/supabase/`.
 | `frontend/src/services/manifestService.js` | Full rewrite |
 | `frontend/src/services/transferService.js` | Full rewrite |
 | `frontend/src/App.jsx` | Async auth, session persistence |
-| `frontend/src/components/*Page.jsx` (7 pages) | `useAsyncData` + loading states |
+| `frontend/src/components/*Page.jsx` (7 pages) | `useAsyncData` + loading/error states |
 | `frontend/package.json` | Add `@supabase/supabase-js` |
 | `.gitignore` | Add `.env.local` |
