@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { formatAuditTimestamp, formatDate } from "../utils/dateUtils"
 import { 
     getRequestsPendingApproval,
@@ -8,14 +8,15 @@ import {
 } from "../services/requestService"
 import { findInventoryItemById } from "../services/inventoryService"
 import { formatCurrency } from "../utils/formatters"
+import { useAsyncData } from "../hooks/useAsyncData"
 import Toast from "./Toast"
 import FilterHeader from "./FilterHeader"
 
-function buildRequestItemsWithCost(request) {
+async function buildRequestItemsWithCost(request) {
     if (!request) return []
 
-    return request.items.map((item) => {
-        const inventoryItem = findInventoryItemById(item.inventoryItemId)
+    return Promise.all(request.items.map(async (item) => {
+        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
 
         const requestedQuantity = Number(item.requestedQuantity || 0)
         const unitCost = Number(inventoryItem?.unitCost || 0)
@@ -30,7 +31,7 @@ function buildRequestItemsWithCost(request) {
             unitCost,
             lineTotalCost,
         }
-    })
+    }))
 }
 
 function getPriorityBadgeClass(priorityValue) {
@@ -58,9 +59,19 @@ function PendingRequestDetailContent({
     onClose,
     showClose = false,
 }) {
+    const [requestItems, setRequestItems] = useState([])
+
+    useEffect(() => {
+        if (!request) return
+        let cancelled = false
+        buildRequestItemsWithCost(request).then((items) => {
+            if (!cancelled) setRequestItems(items)
+        })
+        return () => { cancelled = true }
+    }, [request])
+
     if(!request) return null
 
-    const requestItems = buildRequestItemsWithCost(request)
     const totalRequestCost = requestItems.reduce(
         (sum, item) => sum + Number(item.lineTotalCost || 0),
         0
@@ -285,10 +296,9 @@ function PendingRequestModal({
 function PendingRequestsPage({ onBack, currentUser }) {
     const requestRefs = useRef({})
 
-    const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
     const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 900)
 
-    const [pendingRequests, setPendingRequests] = useState(() => getRequestsPendingApproval())
+    const { data: pendingRequests, loading: pendingLoading, setData: setPendingRequests } = useAsyncData(() => getRequestsPendingApproval())
 
     const [toast, setToast] = useState({ message: "", type: "success" })
 
@@ -303,15 +313,6 @@ function PendingRequestsPage({ onBack, currentUser }) {
     const [approvalNotes, setApprovalNotes] = useState("")
     const [approvalError, setApprovalError] = useState("")
     const [formError, setFormError] = useState("")
-
-    useEffect(() => {
-        function handleResize() {
-            setIsMobile(window.innerWidth <= 900)
-        }
-
-        window.addEventListener("resize", handleResize)
-        return () => window.removeEventListener("resize", handleResize)
-    }, [])
 
     function handleClearFilters() {
         setSearchTerm("")
@@ -330,12 +331,13 @@ function PendingRequestsPage({ onBack, currentUser }) {
         }, 3000)
     }
 
-    function refreshPendingRequests() {
-        setPendingRequests(getRequestsPendingApproval())
+    async function refreshPendingRequests() {
+        const updated = await getRequestsPendingApproval()
+        setPendingRequests(updated)
     }
 
-    function openRequestDetails(requestId) {
-        const request = findRequestById(requestId)
+    async function openRequestDetails(requestId) {
+        const request = await findRequestById(requestId)
 
         if (!request || request.statusValue !== "pending_approval") return
 
@@ -380,13 +382,13 @@ function PendingRequestsPage({ onBack, currentUser }) {
         return true
     }
 
-    function handleApproveRequest() {
+    async function handleApproveRequest() {
         if (!selectedRequest) return
 
         const isValid = validateDecision(false)
         if (!isValid) return
 
-        const updatedRequest = approveRequest(
+        const updatedRequest = await approveRequest(
             selectedRequest.id,
             currentUser?.username || "unknown",
             approvalNotes.trim()
@@ -397,18 +399,18 @@ function PendingRequestsPage({ onBack, currentUser }) {
             return
         }
 
-        refreshPendingRequests()
+        await refreshPendingRequests()
         closeRequestDetails()
         showToast(`Request ${selectedRequest.id} approved.`)
     }
 
-    function handleRejectRequest() {
+    async function handleRejectRequest() {
         if (!selectedRequest) return
 
         const isValid = validateDecision(true)
         if (!isValid) return
 
-        const updatedRequest = rejectRequest(
+        const updatedRequest = await rejectRequest(
             selectedRequest.id,
             currentUser?.username || "unknown",
             approvalNotes.trim()
@@ -419,14 +421,15 @@ function PendingRequestsPage({ onBack, currentUser }) {
             return
         }
 
-        refreshPendingRequests()
+        await refreshPendingRequests()
         closeRequestDetails()
         showToast(`Request ${selectedRequest.id} rejected.`, "error")
     }
 
-    const requestSummaries = useMemo(() => {
-        return pendingRequests.map((request) => {
-            const itemsWithCost = buildRequestItemsWithCost(request)
+    const buildSummaries = useCallback(async () => {
+        const requests = pendingRequests ?? []
+        return Promise.all(requests.map(async (request) => {
+            const itemsWithCost = await buildRequestItemsWithCost(request)
             const totalCost = itemsWithCost.reduce(
                 (sum, item) => sum + Number(item.lineTotalCost || 0),
                 0
@@ -437,25 +440,29 @@ function PendingRequestsPage({ onBack, currentUser }) {
                 itemCount: request.items.length,
                 totalCost,
             }
-        })
+        }))
     }, [pendingRequests])
+
+    const { data: requestSummaries, loading: summariesLoading } = useAsyncData(buildSummaries, [buildSummaries])
+
+    const safeRequestSummaries = useMemo(() => requestSummaries ?? [], [requestSummaries])
 
     const filterOptions = useMemo(() => {
         return {
-            projects: ["All", ...new Set(requestSummaries.map((request) => request.project))],
-            priorities: ["All", ...new Set(requestSummaries.map((request) => request.priority))],
-            requesters: ["All", ...new Set(requestSummaries.map((request) => request.requestedBy))],
-            warehouses: ["All", ...new Set(requestSummaries.map((request) => request.sourceWarehouse))],
+            projects: ["All", ...new Set(safeRequestSummaries.map((request) => request.project))],
+            priorities: ["All", ...new Set(safeRequestSummaries.map((request) => request.priority))],
+            requesters: ["All", ...new Set(safeRequestSummaries.map((request) => request.requestedBy))],
+            warehouses: ["All", ...new Set(safeRequestSummaries.map((request) => request.sourceWarehouse))],
         }
-    }, [requestSummaries])
+    }, [safeRequestSummaries])
 
     const summary = useMemo(() => {
         const today = new Date()
         const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
-        const urgentCount = requestSummaries.filter((request) => request.priorityValue === "urgent").length
+        const urgentCount = safeRequestSummaries.filter((request) => request.priorityValue === "urgent").length
 
-        const dueSoonCount = requestSummaries.filter((request) => {
+        const dueSoonCount = safeRequestSummaries.filter((request) => {
             if (!request.neededByDate) return false
 
             const neededDate = new Date(request.neededByDate)
@@ -467,9 +474,9 @@ function PendingRequestsPage({ onBack, currentUser }) {
             return diffDays >= 0 && diffDays <= 2
         }).length
 
-        const overdueCount = requestSummaries.filter((request) => {
+        const overdueCount = safeRequestSummaries.filter((request) => {
             if (!request.neededByDate) return false
-            
+
             const neededDate = new Date(request.neededByDate)
 
             const neededMidnight = new Date(neededDate.getFullYear(), neededDate.getMonth(), neededDate.getDate())
@@ -478,19 +485,19 @@ function PendingRequestsPage({ onBack, currentUser }) {
         }).length
 
         return {
-            totalPending: requestSummaries.length,
+            totalPending: safeRequestSummaries.length,
             urgent: urgentCount,
             dueSoon: dueSoonCount,
             overdue: overdueCount,
-            totalPendingCost: requestSummaries.reduce(
+            totalPendingCost: safeRequestSummaries.reduce(
                 (sum, request) => sum + Number(request.totalCost || 0),
                 0
             ),
         }
-    }, [requestSummaries])
+    }, [safeRequestSummaries])
 
     const filteredRequests = useMemo(() => {
-        return requestSummaries.filter((request) => {
+        return safeRequestSummaries.filter((request) => {
             const search = searchTerm.toLowerCase()
 
             const matchesSearch = 
@@ -512,7 +519,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
                 matchesSearch && matchesProject && matchesPriority && matchesRequester && matchesWarehouse
             )
         })
-    }, [requestSummaries, searchTerm, projectFilter, priorityFilter, requesterFilter, warehouseFilter])
+    }, [safeRequestSummaries, searchTerm, projectFilter, priorityFilter, requesterFilter, warehouseFilter])
 
     const filteredCost = useMemo(() => {
         return filteredRequests.reduce(
@@ -522,6 +529,8 @@ function PendingRequestsPage({ onBack, currentUser }) {
     }, [filteredRequests])
 
     const { projects, priorities, requesters, warehouses } = filterOptions
+
+    if (pendingLoading || summariesLoading) return <div>Loading...</div>
 
     return (
         <>

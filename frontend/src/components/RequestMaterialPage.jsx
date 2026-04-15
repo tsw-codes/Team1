@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState } from "react"
+import { useRef, useState } from "react"
+import { useAsyncData } from "../hooks/useAsyncData"
 import { createAuditTimestamp } from "../utils/dateUtils"
 import { createRequest } from "../services/requestService"
 import { getRequestableInventoryForWarehouse } from "../services/inventoryService"
-import { 
-    getSiteLocationOptions, 
+import {
+    getSiteLocationOptions,
     getWarehouseLocationOptions,
-    getProjectOptionsForLocation, 
+    getProjectOptionsForLocation,
     getProjectByValue,
     getLocationByValue,
 } from "../services/projectService"
@@ -46,29 +47,34 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
     const [requestedItems, setRequestedItems] = useState([])
 
-    const warehouseOptions = useMemo(() => {
-        return getWarehouseLocationOptions()
-    }, [])
+    const { data: warehouseOptions } = useAsyncData(() => getWarehouseLocationOptions(), [])
 
-    const locationOptions = useMemo(() => {
-        return getSiteLocationOptions()
-    }, [])
+    const { data: locationOptions } = useAsyncData(() => getSiteLocationOptions(), [])
 
-    const projectOptions = useMemo(() => {
-        return getProjectOptionsForLocation(requestForm.locationValue)
-    }, [requestForm.locationValue])
+    const { data: projectOptions } = useAsyncData(
+        () => getProjectOptionsForLocation(requestForm.locationValue),
+        [requestForm.locationValue]
+    )
 
-    const selectedLocation = useMemo(() => {
-        return getLocationByValue(requestForm.locationValue)
-    }, [requestForm.locationValue])
+    const { data: selectedLocation } = useAsyncData(
+        () => getLocationByValue(requestForm.locationValue),
+        [requestForm.locationValue]
+    )
 
-    const selectedProject = useMemo(() => {
-        return getProjectByValue(requestForm.projectValue)
-    }, [requestForm.projectValue])
+    const { data: selectedProject } = useAsyncData(
+        () => getProjectByValue(requestForm.projectValue),
+        [requestForm.projectValue]
+    )
 
-    const selectedSourceWarehouse = useMemo(() => {
-        return getLocationByValue(requestForm.sourceWarehouseValue)
-    }, [requestForm.sourceWarehouseValue])
+    const { data: selectedSourceWarehouse } = useAsyncData(
+        () => getLocationByValue(requestForm.sourceWarehouseValue),
+        [requestForm.sourceWarehouseValue]
+    )
+
+    const { data: warehouseInventory } = useAsyncData(
+        () => getRequestableInventoryForWarehouse(requestForm.sourceWarehouseValue),
+        [requestForm.sourceWarehouseValue]
+    )
 
     function handleRequestChange(e) {
         const { name, value } = e.target
@@ -204,7 +210,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
         delete itemFieldRefs.current[id]
     }
 
-    function validateRequestForm() {
+    async function validateRequestForm() {
         const newRequestErrors = {}
         const newItemErrors = {}
 
@@ -212,9 +218,9 @@ function RequestMaterialPage({ onBack, currentUser }) {
             newRequestErrors.locationValue = "Location is required."
         }
 
-        const selectedLocation = getLocationByValue(requestForm.locationValue)
+        const validationLocation = await getLocationByValue(requestForm.locationValue)
 
-        if (requestForm.locationValue && selectedLocation?.type !== "site") {
+        if (requestForm.locationValue && validationLocation?.type !== "site") {
             newRequestErrors.locationValue = "Request must be delivered to a site location."
         }
 
@@ -245,11 +251,13 @@ function RequestMaterialPage({ onBack, currentUser }) {
             return false
         }
 
+        const inventoryForWarehouse = await getRequestableInventoryForWarehouse(
+            requestForm.sourceWarehouseValue
+        )
+
         requestedItems.forEach((item) => {
             const errors = {}
-            const selectedInventory = getRequestableInventoryForWarehouse(
-                requestForm.sourceWarehouseValue
-            ).find(
+            const selectedInventory = inventoryForWarehouse.find(
                 (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
             ) || null
 
@@ -305,10 +313,10 @@ function RequestMaterialPage({ onBack, currentUser }) {
         alert("Save Draft not yet implemented.")
     }
 
-    function handleSubmitRequest(e) {
+    async function handleSubmitRequest(e) {
         e.preventDefault()
 
-        const isValid = validateRequestForm()
+        const isValid = await validateRequestForm()
         if (!isValid) return
 
         const priorityLabelMap = {
@@ -317,11 +325,11 @@ function RequestMaterialPage({ onBack, currentUser }) {
             high: "High",
             urgent: "Urgent",
         }
-        
+
         const newRequest = {
             requestedBy: requestForm.requestedBy,
             createdAt: requestForm.createdAt,
-            
+
             statusValue: "pending_approval",
             status: "Pending Approval",
 
@@ -359,7 +367,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
             })),
         }
 
-        const createdRequest = createRequest(newRequest)
+        const createdRequest = await createRequest(newRequest)
 
         alert(`Request ${createdRequest.id} created.`)
     }
@@ -459,7 +467,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                     onChange={handleRequestChange}
                                 >
                                     <option value="">Select location</option>
-                                    {locationOptions.map((location) => (
+                                    {(locationOptions ?? []).map((location) => (
                                         <option key={location.value} value={location.value}>
                                             {location.label}
                                         </option>
@@ -483,7 +491,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                     <option value="">
                                         {requestForm.locationValue ? "Select project" : "Select location first"}
                                     </option>
-                                    {projectOptions.map((project) => (
+                                    {(projectOptions ?? []).map((project) => (
                                         <option key={project.value} value={project.value}>
                                             {project.label}
                                         </option>
@@ -539,7 +547,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                     onChange={handleRequestChange}   
                                 >
                                     <option value="">Select Warehouse</option>
-                                    {warehouseOptions.map((warehouse) => (
+                                    {(warehouseOptions ?? []).map((warehouse) => (
                                         <option key={warehouse.value} value={warehouse.value}>
                                             {warehouse.label}
                                         </option>
@@ -575,7 +583,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
                         <div className="received-items-list">
                             {requestedItems.map((item, index) => {
-                                const inventoryOptions = getRequestableInventoryForWarehouse(requestForm.sourceWarehouseValue)
+                                const inventoryOptions = warehouseInventory ?? []
                                 const selectedInventory = inventoryOptions.find(
                                     (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
                                 ) || null

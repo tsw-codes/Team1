@@ -605,9 +605,11 @@ SQL files live in `backend/supabase/`.
 - Password removed from `currentUser` state entirely in Supabase mode
 - Mock mode passwords kept as-is (`admin`/`admin`) — Supabase passwords are `username + 123`
 
-### Phase 5: Page Updates (minimal)
-- Add `useAsyncData` + loading/error states to 7 pages
-- Make submit handlers async
+### Phase 5: Page Updates (minimal) ✅
+- ✅ All 8 pages updated: HomePage, InventoryPage, ReceiveInventoryPage, RequestMaterialPage, ManifestInventoryPage, TransferInventoryPage, PendingRequestsPage, ShipmentTrackingPage
+- ✅ Replaced sync `useState`/`useMemo` service calls with `useAsyncData` hook
+- ✅ Made all submit/action handlers async with `await`
+- ✅ Added loading/error guards and `?? []` null safety on data arrays
 
 ### Phase 6: Verification
 1. Auth — login/logout all 5 users, session persistence, token expiry

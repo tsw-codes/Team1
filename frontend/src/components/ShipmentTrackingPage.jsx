@@ -6,6 +6,7 @@ import { getAllRequests } from "../services/requestService"
 import { getAllManifests } from "../services/manifestService"
 import { getAllTransfers } from "../services/transferService"
 import { findInventoryItemById } from "../services/inventoryService"
+import { useAsyncData } from "../hooks/useAsyncData"
 import FilterHeader from "./FilterHeader"
 
 function getWorkflowTypeLabel(workflowType) {
@@ -81,11 +82,11 @@ function getTransferTypeLabel(typeValue) {
     }
 }
 
-function buildRequestItemsWithCost(request) {
+async function buildRequestItemsWithCost(request) {
     if (!request) return []
 
-    return request.items.map((item) => {
-        const inventoryItem = findInventoryItemById(item.inventoryItemId)
+    return Promise.all(request.items.map(async (item) => {
+        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
 
         const requestedQuantity = Number(item.requestedQuantity || 0)
         const unitCost = Number(inventoryItem?.unitCost || 0)
@@ -100,14 +101,14 @@ function buildRequestItemsWithCost(request) {
             unitCost,
             lineTotalCost,
         }
-    })
+    }))
 }
 
-function buildManifestItemsWithCost(manifest) {
+async function buildManifestItemsWithCost(manifest) {
     if (!manifest) return []
 
-    return manifest.items.map((item) => {
-        const inventoryItem = findInventoryItemById(item.inventoryItemId)
+    return Promise.all(manifest.items.map(async (item) => {
+        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
 
         const manifestQuantity = Number(item.manifestQuantity || 0)
         const unitCost = Number(inventoryItem?.unitCost || 0)
@@ -118,14 +119,14 @@ function buildManifestItemsWithCost(manifest) {
             unitCost,
             lineTotalCost,
         }
-    })
+    }))
 }
 
-function buildTransferItemsWithCost(transfer) {
+async function buildTransferItemsWithCost(transfer) {
     if (!transfer) return []
 
-    return transfer.items.map((item) => {
-        const inventoryItem = findInventoryItemById(item.inventoryItemId)
+    return Promise.all(transfer.items.map(async (item) => {
+        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
 
         const receivedQuantity = 
             item.receivedQuantity === null || item.receivedQuantity === undefined || item.receivedQuantity === ""
@@ -155,10 +156,10 @@ function buildTransferItemsWithCost(transfer) {
             effectiveQuantity,
             lineTotalCost,
         }
-    })
+    }))
 }
 
-function buildShipmentTrackingRecords(requests, manifests, transfers) {
+async function buildShipmentTrackingRecords(requests, manifests, transfers) {
     const records = []
 
     const manifestsByRequestId = new Map()
@@ -175,7 +176,7 @@ function buildShipmentTrackingRecords(requests, manifests, transfers) {
         }
     })
 
-    requests.forEach((request) => {
+    for (const request of requests) {
         const manifest = manifestsByRequestId.get(request.id) || null
         const transfer = manifest ? transfersByManifestId.get(manifest.id) || null : null
 
@@ -204,9 +205,9 @@ function buildShipmentTrackingRecords(requests, manifests, transfers) {
                 lastUpdatedAt
         }
 
-        const requestItems = buildRequestItemsWithCost(request)
-        const manifestItems = manifest ? buildManifestItemsWithCost(manifest) : []
-        const transferItems = transfer ? buildTransferItemsWithCost(transfer) : []
+        const requestItems = await buildRequestItemsWithCost(request)
+        const manifestItems = manifest ? await buildManifestItemsWithCost(manifest) : []
+        const transferItems = transfer ? await buildTransferItemsWithCost(transfer) : []
 
         const activeCostItems = transfer
             ? transferItems
@@ -270,11 +271,9 @@ function buildShipmentTrackingRecords(requests, manifests, transfers) {
 
             totalCost,
         })
-    })
+    }
 
-    manifests
-        .filter((manifest) => !manifest.requestId)
-        .forEach((manifest) => {
+    for (const manifest of manifests.filter((manifest) => !manifest.requestId)) {
             const transfer = transfersByManifestId.get(manifest.id) || null
 
             let currentStatusValue = "manifested"
@@ -297,8 +296,8 @@ function buildShipmentTrackingRecords(requests, manifests, transfers) {
                     lastUpdatedAt
             }
 
-            const manifestItems = buildManifestItemsWithCost(manifest)
-            const transferItems = transfer ? buildTransferItemsWithCost(transfer) : []
+            const manifestItems = await buildManifestItemsWithCost(manifest)
+            const transferItems = transfer ? await buildTransferItemsWithCost(transfer) : []
 
             const activeCostItems = transfer ? transferItems : manifestItems
 
@@ -361,7 +360,7 @@ function buildShipmentTrackingRecords(requests, manifests, transfers) {
 
                 totalCost,
             })
-        })
+    }
 
     return records
 }
@@ -835,7 +834,14 @@ function ShipmentTrackingPage({ onBack, permissions = [] }) {
 
     const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
 
-    const [trackingData] = useState(() => buildShipmentTrackingRecords(getAllRequests(), getAllManifests(), getAllTransfers()))
+    const { data: trackingData, loading, error } = useAsyncData(async () => {
+        const [requests, manifests, transfers] = await Promise.all([
+            getAllRequests(),
+            getAllManifests(),
+            getAllTransfers(),
+        ])
+        return buildShipmentTrackingRecords(requests, manifests, transfers)
+    })
 
     useEffect(() => {
         function handleResize() {
@@ -848,27 +854,27 @@ function ShipmentTrackingPage({ onBack, permissions = [] }) {
 
     const filterOptions = useMemo(() => {
         return {
-            statuses: ["All", ...new Set(trackingData.map((record) => record.currentStatusValue))],
-            workflowTypes: ["All", ...new Set(trackingData.map((record) => record.workflowType))],
-            projects: ["All", ...new Set(trackingData.map((record) => record.project).filter(Boolean))],
-            requesters: ["All", ...new Set(trackingData.map((record) => record.requestedBy).filter(Boolean))],
-            approvers: ["All", ...new Set(trackingData.map((record) => record.approvedBy).filter(Boolean))],
+            statuses: ["All", ...new Set((trackingData ?? []).map((record) => record.currentStatusValue))],
+            workflowTypes: ["All", ...new Set((trackingData ?? []).map((record) => record.workflowType))],
+            projects: ["All", ...new Set((trackingData ?? []).map((record) => record.project).filter(Boolean))],
+            requesters: ["All", ...new Set((trackingData ?? []).map((record) => record.requestedBy).filter(Boolean))],
+            approvers: ["All", ...new Set((trackingData ?? []).map((record) => record.approvedBy).filter(Boolean))],
         }
     }, [trackingData])
 
     const summary = useMemo(() => {
         return {
-            totalItems: trackingData.length,
-            pendingApproval: trackingData.filter((record) => record.currentStatusValue === "pending_approval").length,
-            approved: trackingData.filter((record) => record.currentStatusValue === "approved").length,
-            inTransit: trackingData.filter((record) => record.currentStatusValue === "in_transit").length,
-            exceptions: trackingData.filter((record) => record.currentStatusValue === "exception").length,
-            completed: trackingData.filter((record) => record.currentStatusValue === "completed").length,
+            totalItems: (trackingData ?? []).length,
+            pendingApproval: (trackingData ?? []).filter((record) => record.currentStatusValue === "pending_approval").length,
+            approved: (trackingData ?? []).filter((record) => record.currentStatusValue === "approved").length,
+            inTransit: (trackingData ?? []).filter((record) => record.currentStatusValue === "in_transit").length,
+            exceptions: (trackingData ?? []).filter((record) => record.currentStatusValue === "exception").length,
+            completed: (trackingData ?? []).filter((record) => record.currentStatusValue === "completed").length,
         }
     }, [trackingData])
 
     const filteredRecords = useMemo(() => {
-        return trackingData.filter((record) => {
+        return (trackingData ?? []).filter((record) => {
             const search = searchTerm.toLowerCase()
 
             const matchesSearch = 
@@ -936,6 +942,14 @@ function ShipmentTrackingPage({ onBack, permissions = [] }) {
         setProjectFilter("All")
         setRequesterFilter("All")
         setApproverFilter("All")
+    }
+
+    if (loading) {
+        return <div className="inventory-page"><p>Loading...</p></div>
+    }
+
+    if (error) {
+        return <div className="inventory-page"><p>Failed to load shipment tracking data.</p></div>
     }
 
     return (

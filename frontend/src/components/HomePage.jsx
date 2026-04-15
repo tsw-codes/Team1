@@ -16,8 +16,9 @@ function HomePage({ name, permissions, onOpenPage }) {
     const [openGroup, setOpenGroup] = useState("")
 
     useEffect(() => {
-        function updateCount() {
-            setPendingRequestCount(getRequestsPendingApproval().length)
+        async function updateCount() {
+            const requests = await getRequestsPendingApproval()
+            setPendingRequestCount(requests.length)
         }
 
         updateCount()
