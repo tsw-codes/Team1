@@ -588,13 +588,22 @@ SQL files live in `backend/supabase/`.
 ### Phase 3: Frontend Utilities ✅ DONE (included in Phase 1)
 
 ### Phase 4: Service Rewrites (in dependency order)
-1. `authService.js` + `App.jsx` auth flow
-2. `projectService.js` (locations/projects — referenced by everything)
-3. `inventoryService.js`
+1. ✅ `authService.js` + `App.jsx` auth flow
+2. ✅ `projectService.js` (locations/projects — referenced by everything)
+3. ✅ `inventoryService.js`
 4. `requestService.js`
 5. `manifestService.js`
 6. `transferService.js`
 7. `storageService.js` (new — packing slip uploads)
+
+**Auth rewrite decisions:**
+- All service functions async with `USE_MOCK` toggle — mock mode returns same data, Supabase mode hits real DB
+- Username → email conversion (`admin` → `admin@coolsys.com`) happens inside `authenticateUser()`
+- `signOut()`, `getCurrentSession()`, `onAuthStateChange()` added as new exports
+- `updateUserPassword()` now takes `currentPassword` param — verifies via `signInWithPassword` before updating
+- App.jsx: `useEffect` restores session on refresh, `onAuthStateChange` listener redirects on token expiry
+- Password removed from `currentUser` state entirely in Supabase mode
+- Mock mode passwords kept as-is (`admin`/`admin`) — Supabase passwords are `username + 123`
 
 ### Phase 5: Page Updates (minimal)
 - Add `useAsyncData` + loading/error states to 7 pages
@@ -641,13 +650,13 @@ SQL files live in `backend/supabase/`.
 
 | File | Scope of Change |
 |---|---|
-| `frontend/src/services/authService.js` | Full rewrite |
-| `frontend/src/services/projectService.js` | Full rewrite |
-| `frontend/src/services/inventoryService.js` | Full rewrite |
+| ~~`frontend/src/services/authService.js`~~ | ✅ Done |
+| ~~`frontend/src/services/projectService.js`~~ | ✅ Done |
+| ~~`frontend/src/services/inventoryService.js`~~ | ✅ Done |
 | `frontend/src/services/requestService.js` | Full rewrite |
 | `frontend/src/services/manifestService.js` | Full rewrite |
 | `frontend/src/services/transferService.js` | Full rewrite |
-| `frontend/src/App.jsx` | Async auth, session persistence |
+| ~~`frontend/src/App.jsx`~~ | ✅ Done — async auth, session persistence |
 | `frontend/src/components/*Page.jsx` (7 pages) | `useAsyncData` + loading/error states |
 | ~~`frontend/package.json`~~ | ✅ Done — added `@supabase/supabase-js` |
 | ~~`.gitignore`~~ | ✅ Done — added `.env.local`, Supabase CLI `.temp` |
