@@ -468,11 +468,17 @@ CREATE POLICY "approve_requests" ON requests
 7. Create `frontend/.env.local` with credentials
 8. Add `.env.local` to `.gitignore`
 
-### Phase 2: Database Schema
-Create SQL files in `supabase/` folder:
-- `schema.sql` — all tables, views, triggers, RLS policies
-- `functions.sql` — ID generation + adjustment RPCs
-- `seed.sql` — demo data from existing mock files
+### Phase 2: Database Schema ✅ DONE
+SQL files live in `backend/supabase/`.
+- `schema.sql` — ✅ all tables, views, triggers, RLS policies, ID generation functions, and atomic inventory adjustment RPC (combined into one file)
+- `seed.sql` — TODO: demo data from existing mock files
+
+**Decisions made:**
+- `total_cost` uses a trigger instead of `GENERATED ALWAYS AS` (Supabase tooling compatibility issue)
+- `order_date` added to requests table (stakeholder request for PO fallback)
+- `returned` added as inventory adjustment type (wrong inventory flow from 03/03 meeting)
+- Original `createAll.sql` kept in `backend/SQL scripts/` but marked deprecated
+- `@supabase/supabase-js` latest stable is v2.103.0 — no v3 migration needed
 
 ### Phase 3: Frontend Utilities
 1. `src/utils/caseUtils.js` — snake/camel transforms
@@ -509,9 +515,8 @@ Create SQL files in `supabase/` folder:
 | `frontend/src/utils/caseUtils.js` | snake_case ↔ camelCase transforms |
 | `frontend/src/services/storageService.js` | Packing slip upload/download |
 | `frontend/.env.local` | Supabase credentials (gitignored) |
-| `supabase/schema.sql` | Tables, views, triggers, RLS policies |
-| `supabase/functions.sql` | ID generation + adjustment RPCs |
-| `supabase/seed.sql` | Demo data for all tables |
+| ~~`backend/supabase/schema.sql`~~ | ✅ Done — tables, views, triggers, RLS, functions |
+| `backend/supabase/seed.sql` | Demo data for all tables |
 
 ## Files to Modify
 
