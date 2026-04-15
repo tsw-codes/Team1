@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from "react"
-import { 
+import { useRef, useState } from "react"
+import {
     getLocationOptionsForPermissions,
     getProjectOptionsForLocation,
     getLocationByValue,
-    getProjectByValue,
  } from "../services/projectService"
+ import { useAsyncData } from "../hooks/useAsyncData"
  import InfoHeader from "./InfoHeader"
 
 function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
@@ -43,21 +43,22 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
         },
     ])
 
-    const locationOptions = useMemo(() => {
-        return getLocationOptionsForPermissions(permissions)
-    }, [permissions])
-    
-    const projectOptions = useMemo(() => {
-        return getProjectOptionsForLocation(deliveryForm.locationValue)
-    }, [deliveryForm.locationValue])
+    const { data: rawLocationOptions } = useAsyncData(
+        () => getLocationOptionsForPermissions(permissions),
+        [permissions]
+    )
+    const locationOptions = rawLocationOptions ?? []
 
-    const selectedLocation = useMemo(() => {
-        return getLocationByValue(deliveryForm.locationValue)
-    }, [deliveryForm.locationValue])
+    const { data: rawProjectOptions } = useAsyncData(
+        () => getProjectOptionsForLocation(deliveryForm.locationValue),
+        [deliveryForm.locationValue]
+    )
+    const projectOptions = rawProjectOptions ?? []
 
-    const selectedProject = useMemo(() => {
-        return getProjectByValue(deliveryForm.projectValue)
-    }, [deliveryForm.projectValue])
+    const { data: selectedLocation } = useAsyncData(
+        () => getLocationByValue(deliveryForm.locationValue),
+        [deliveryForm.locationValue]
+    )
 
     function handleScanClick() {
         fileInputRef.current?.click()
@@ -85,31 +86,7 @@ function ReceiveInventoryPage({ onBack, currentUser, permissions = [] }) {
         const isValid = validateReceiveForm()
         if (!isValid) return
         
-        const receiptPayload = {
-            vendor: deliveryForm.vendor,
-            poNumber: deliveryForm.poNumber,
-            deliveryDate: deliveryForm.deliveryDate,
-            receivedBy: deliveryForm.receivedBy,
-
-            locationValue: deliveryForm.locationValue,
-            location: selectedLocation?.label || "",
-
-            projectValue: deliveryForm.projectValue,
-            project: selectedProject?.label || "",
-
-            notes: deliveryForm.notes,
-
-            items: receivedItems.map((item, index) => ({
-                id: index + 1,
-                materialName: item.materialName,
-                sku: item.sku,
-                quantity: Number(item.quantity),
-                unit: item.unit,
-                condition: item.condition,
-                source: item.source,
-            })),
-        }
-
+        // TODO: submit receipt payload to service
         alert("Confirm Receipt not yet implemented.")
     }
 

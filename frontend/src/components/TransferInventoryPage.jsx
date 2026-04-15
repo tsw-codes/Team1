@@ -2,6 +2,7 @@ import { useRef, useState } from "react"
 import { createAuditTimestamp, formatAuditTimestamp, formatDate } from "../utils/dateUtils"
 import { createTransfer, getTransfersForPermissions, updateTransfer } from "../services/transferService"
 import { getAvailableManifestsForTransfer } from "../services/manifestService"
+import { useAsyncData } from "../hooks/useAsyncData"
 import Toast from "./Toast"
 import InfoHeader from "./InfoHeader"
 
@@ -14,9 +15,9 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const [toast, setToast] = useState({ message: "", type: "success" })
 
-    const availableManifests = getAvailableManifestsForTransfer(permissions)
+    const { data: availableManifests, loading: manifestsLoading, error: manifestsError } = useAsyncData(() => getAvailableManifestsForTransfer(permissions), [permissions])
 
-    const availableTransfers = getTransfersForPermissions(permissions)
+    const { data: availableTransfers, loading: transfersLoading, error: transfersError, refetch: refetchTransfers } = useAsyncData(() => getTransfersForPermissions(permissions), [permissions])
 
     const [formError, setFormError] = useState("")
     const [transferErrors, setTransferErrors] = useState({})
@@ -62,7 +63,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         const [recordType, recordId] = value.split(":")
 
         if (recordType === "manifest") {
-            const manifest = availableManifests.find((item) => item.id === recordId) || null
+            const manifest = (availableManifests ?? []).find((item) => item.id === recordId) || null
 
             if (!manifest) {
                 resetTransferSelection()
@@ -81,7 +82,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         }
 
         if (recordType === "transfer") {
-            const transfer = availableTransfers.find((item) => item.id === recordId) || null
+            const transfer = (availableTransfers ?? []).find((item) => item.id === recordId) || null
 
             if (!transfer) {
                 resetTransferSelection()
@@ -121,11 +122,11 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
         const isValidManifest =
             recordType === "manifest" &&
-            availableManifests.some((item) => item.id === recordId)
+            (availableManifests ?? []).some((item) => item.id === recordId)
 
         const isValidTransfer =
             recordType === "transfer" &&
-            availableTransfers.some((item) => item.id === recordId)
+            (availableTransfers ?? []).some((item) => item.id === recordId)
 
         if (!isValidManifest && !isValidTransfer) {
             setSelectedWorkItem("")
@@ -307,7 +308,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         return true
     }
 
-    function handleConfirmShipment(e) {
+    async function handleConfirmShipment(e) {
         e.preventDefault()
 
         if (!activeRecord || !isManifest) return
@@ -365,7 +366,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             })),
         }
 
-        const createdTransfer = createTransfer(newTransfer)
+        const createdTransfer = await createTransfer(newTransfer)
 
         setSelectedWorkItem(`transfer:${createdTransfer.id}`)
         setActiveRecord(createdTransfer)
@@ -374,10 +375,11 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         setItemErrors({})
         setFormError("")
 
+        refetchTransfers()
         showToast(`Transfer shipment ${createdTransfer.id} created.`)
     }
 
-    function handleConfirmReceipt(e) {
+    async function handleConfirmReceipt(e) {
         e.preventDefault()
 
         if (!activeRecord || !isReceiving) return
@@ -389,7 +391,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             (item) => Number(item.receivedQuantity || 0) !== Number(item.shippedQuantity || 0)
         )
 
-        const updatedTransfer = updateTransfer(activeRecord.id, {
+        const updatedTransfer = await updateTransfer(activeRecord.id, {
             statusValue: "completed",
             status: "Completed",
             completionOutcomeValue: hasDiscrepancy ? "exception" : "standard",
@@ -439,7 +441,15 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         return "reserved"
     }
 
-    if (availableManifests.length === 0 && availableTransfers.length === 0) {
+    if (manifestsLoading || transfersLoading) {
+        return <div className="manifest-page"><p>Loading...</p></div>
+    }
+
+    if (manifestsError || transfersError) {
+        return <div className="manifest-page"><p>Failed to load transfer data.</p></div>
+    }
+
+    if ((availableManifests ?? []).length === 0 && (availableTransfers ?? []).length === 0) {
         return (
             <>
                 <div className="manifest-page">
@@ -499,13 +509,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                     >
                                         <option value="">Select work item</option>
 
-                                        {availableManifests.map((manifest) => (
+                                        {(availableManifests ?? []).map((manifest) => (
                                             <option key={`manifest:${manifest.id}`} value={`manifest:${manifest.id}`}>
                                                 {manifest.id} - (Ready to Ship)
                                             </option>
                                         ))}
 
-                                        {availableTransfers.map((transfer) => (
+                                        {(availableTransfers ?? []).map((transfer) => (
                                             <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
                                                 {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status, transfer.completionOutcomeValue)})
                                             </option>
@@ -561,13 +571,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                 >
                                     <option value="">Select work item</option>
 
-                                    {availableManifests.map((manifest) => (
+                                    {(availableManifests ?? []).map((manifest) => (
                                         <option key={`manifest:${manifest.id}`} value={`manifest:${manifest.id}`}>
                                             {manifest.id} - (Ready to Ship)
                                         </option>
                                     ))}
 
-                                    {availableTransfers.map((transfer) => (
+                                    {(availableTransfers ?? []).map((transfer) => (
                                         <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
                                             {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status, transfer.completionOutcomeValue)})
                                         </option>

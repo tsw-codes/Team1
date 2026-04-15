@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
-import { 
-    getInventoryItems, 
+import {
+    getInventoryItems,
     createInventoryAdjustment,
     canAdjustInventoryItemForPermissions,
 } from "../services/inventoryService"
+import { useAsyncData } from "../hooks/useAsyncData"
 import FilterHeader from "./FilterHeader"
 
 function getStatusClass(status) {
@@ -247,9 +248,17 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     const [adjustError, setAdjustError] = useState("")
 
     const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
-    const canAdjustSelectedItem = canAdjustInventoryItemForPermissions(selectedItem, permissions)
 
-    const [inventoryData, setInventoryData] = useState(() => [...getInventoryItems()])
+    const { data: canAdjustSelectedItem } = useAsyncData(
+        () => canAdjustInventoryItemForPermissions(selectedItem, permissions),
+        [selectedItem, permissions]
+    )
+
+    const { data: rawInventoryData, loading: inventoryLoading, error: inventoryError, setData: setRawInventoryData } = useAsyncData(
+        () => getInventoryItems(),
+        []
+    )
+    const inventoryData = useMemo(() => rawInventoryData ?? [], [rawInventoryData])
 
     const filterOptions = useMemo(() => {
         return {
@@ -314,8 +323,9 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
         setStatusFilter("All")
     }
 
-    function handleAdjustInventory() {
-        if (!canAdjustInventoryItemForPermissions(selectedItem, permissions)) {
+    async function handleAdjustInventory() {
+        const canAdjust = await canAdjustInventoryItemForPermissions(selectedItem, permissions)
+        if (!canAdjust) {
             return
         }
 
@@ -341,7 +351,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
         }
     }
 
-    function handleSubmitAdjustment(e) {
+    async function handleSubmitAdjustment(e) {
         e.preventDefault()
 
         if (!selectedItem) return
@@ -363,7 +373,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
             return
         }
 
-        const result = createInventoryAdjustment({
+        const result = await createInventoryAdjustment({
             inventoryItemId: selectedItem.id,
             adjustmentType,
             quantityValue,
@@ -377,14 +387,17 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
             return
         }
 
-        const refreshedInventory = [...getInventoryItems()]
-        setInventoryData(refreshedInventory)
+        const refreshedInventory = await getInventoryItems()
+        setRawInventoryData(refreshedInventory)
         setSelectedItem(
             refreshedInventory.find((item) => String(item.id) === String(result.updatedItem.id)) || result.updatedItem
         )
         setAdjustError("")
         setIsAdjustModalOpen(false)
     }
+
+    if (inventoryLoading) return <div>Loading...</div>
+    if (inventoryError) return <div>Failed to load inventory data.</div>
 
     return (
         <div className="inventory-page">
@@ -530,12 +543,12 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
                     <aside className="inventory-detail-panel">
                         {selectedItem ? (
-                            <InventoryDetailContent 
+                            <InventoryDetailContent
                                 item={selectedItem}
                                 onClose={() => setSelectedItem(null)}
                                 showClose={true}
                                 canViewMaterialCost={canViewMaterialCost}
-                                canAdjustInventory={canAdjustSelectedItem}
+                                canAdjustInventory={!!canAdjustSelectedItem}
                                 onAdjustInventory={handleAdjustInventory}
                             />
                         ) : (
@@ -547,11 +560,11 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
                 </section>
 
                 {isMobile && (
-                    <InventoryModal 
+                    <InventoryModal
                         item={selectedItem}
                         onClose={() => setSelectedItem(null)}
                         canViewMaterialCost={canViewMaterialCost}
-                        canAdjustInventory={canAdjustSelectedItem}
+                        canAdjustInventory={!!canAdjustSelectedItem}
                         onAdjustInventory={handleAdjustInventory}
                     />
                 )}
