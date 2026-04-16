@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { getRequestsPendingApproval, subscribeToRequests } from "../services/requestService"
+import { getPendingRequestCount, subscribeToRequests } from "../services/requestService"
+import { homeActions, adminToolActions } from "../config/homeActions"
 
 function HomePage({ name, permissions, onOpenPage }) {
     const navigate = useNavigate()
@@ -17,7 +18,7 @@ function HomePage({ name, permissions, onOpenPage }) {
 
     useEffect(() => {
         function updateCount() {
-            setPendingRequestCount(getRequestsPendingApproval().length)
+            setPendingRequestCount(getPendingRequestCount())
         }
 
         updateCount()
@@ -57,73 +58,15 @@ function HomePage({ name, permissions, onOpenPage }) {
         setOpenGroup((prev) => (prev === groupKey ? "" : groupKey))
     }
 
-    const homeActions = [
-        {
-            key: "view_inventory",
-            title: "View Inventory",
-            description: "Check material quantities and locations.",
-            icon: "📦",
-            path: "/inventory",
-            permission: "view_inventory",
-        },
-        {
-            key: "request_material",
-            title: "Request Material",
-            description: "Submit a material request.",
-            icon: "📝",
-            path: "/request-material",
-            permission: "request_material",
-        },
-        {
-            key: "pending_requests",
-            title: "Pending Requests",
-            description: "Review and approve material requests.",
-            icon: "✅",
-            path: "/pending-requests",
-            permission: "approve_requests",
-            badgeCount: pendingRequestCount,
-        },
-        {
-            key: "manifest_inventory",
-            title: "Manifest Inventory",
-            description: "Build a manifest from an approved request.",
-            icon: "📋",
-            path: "/manifest-inventory",
-            permission: "manifest_inventory",
-        },
-        {
-            key: "transfer_inventory",
-            title: "Transfer Inventory",
-            description: "Execute shipment and receipt for finalized manifests.",
-            icon: "🔄",
-            path: "/transfer-inventory",
-            permission: "transfer_inventory",
-        },
-        {
-            key: "receive_inventory",
-            title: "Receive Inventory",
-            description: "Log incoming materials.",
-            icon: "🚚",
-            path: "/receive-inventory",
-            permission: "receive_inventory",
-        },
-        {
-            key: "shipment_tracking",
-            title: "Shipment Tracking",
-            description: "Track request and shipment workflow status.",
-            icon: "📉",
-            path: "/shipment-tracking",
-            permission: "track_shipment",
-        },
-        {
-            key: "admin_tools",
-            title: "Admin Tools",
-            description: "Manage users and settings.",
-            icon: "⚙️",
-            path: "/admin-tools",
-            permission: "manage_users",
-        },
-    ]
+    const actionsWithBadges = homeActions.map((action) =>
+        action.key === "pending_requests"
+            ? { ...action, badgeCount: pendingRequestCount }
+            : action
+    )
+
+    const allowedActions = actionsWithBadges.filter((action) =>
+        permissions.includes(action.permission)
+    )
 
     const groupedActions = [
         {
@@ -131,9 +74,9 @@ function HomePage({ name, permissions, onOpenPage }) {
             title: "Operations",
             icon: "🧰",
             items: [
-                homeActions.find((action) => action.key === "view_inventory"),
-                homeActions.find((action) => action.key === "request_material"),
-                homeActions.find((action) => action.key === "pending_requests"),
+                actionsWithBadges.find((action) => action.key === "view_inventory"),
+                actionsWithBadges.find((action) => action.key === "request_material"),
+                actionsWithBadges.find((action) => action.key === "pending_requests"),
             ].filter(Boolean),
         },
         {
@@ -141,9 +84,10 @@ function HomePage({ name, permissions, onOpenPage }) {
             title: "Inventory Tools",
             icon: "🏗️",
             items: [
-                homeActions.find((action) => action.key === "manifest_inventory"),
-                homeActions.find((action) => action.key === "transfer_inventory"),
-                homeActions.find((action) => action.key === "receive_inventory"),
+                actionsWithBadges.find((action) => action.key === "enter_purchase_order"),
+                actionsWithBadges.find((action) => action.key === "manifest_inventory"),
+                actionsWithBadges.find((action) => action.key === "transfer_inventory"),
+                actionsWithBadges.find((action) => action.key === "receive_inventory"),
             ].filter(Boolean),
         },
         {
@@ -151,45 +95,16 @@ function HomePage({ name, permissions, onOpenPage }) {
             title: "Reporting",
             icon: "📊",
             items: [
-                homeActions.find((action) => action.key === "shipment_tracking"),
+                actionsWithBadges.find((action) => action.key === "shipment_tracking"),
             ].filter(Boolean),
         },
         {
             key: "admin_tools",
             title: "Admin Tools",
             icon: "⚙️",
-            items: [
-                {
-                    key: "manage_users",
-                    title: "Manage Users",
-                    description: "Create, update, and manage user access.",
-                    icon: "👥",
-                    path: "/manage-users",
-                    permission: "manage_users",
-                },
-                {
-                    key: "manage_locations",
-                    title: "Manage Locations",
-                    description: "Maintain warehouse and site locations.",
-                    icon: "📌",
-                    path: "/manage-locations",
-                    permission: "manage_locations",
-                },
-                {
-                    key: "manage_projects",
-                    title: "Manage Projects",
-                    description: "Maintain project records and assignments.",
-                    icon: "🗂️",
-                    path: "/manage-projects",
-                    permission: "manage_projects",
-                },
-            ],
+            items: adminToolActions,
         },
     ]
-
-    const allowedActions = homeActions.filter((action) =>
-        permissions.includes(action.permission)
-    )
 
     const allowedGroups = groupedActions
         .map((group) => ({

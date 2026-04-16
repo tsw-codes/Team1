@@ -1,31 +1,58 @@
-import { mockRequests, getRequestById } from "../data/mockRequests"
+import { mockRequests } from "../data/mockRequests"
 import { createAuditTimestamp } from "../utils/dateUtils"
+import { findInventoryItemById } from "./inventoryService"
 
 let listeners = []
+
+const requestDataSource = {
+  getAll() {
+    return mockRequests
+  },
+
+  findById(id) {
+    return mockRequests.find((request) => request.id === id) || null
+  },
+
+  insert(request) {
+    mockRequests.unshift(request)
+    return request
+  },
+
+  replaceById(id, updatedRequest) {
+    const index = mockRequests.findIndex((request) => request.id === id)
+
+    if (index === -1) return null
+
+    mockRequests[index] = updatedRequest
+    return mockRequests[index]
+  },
+}
 
 export function subscribeToRequests(listener) {
   listeners.push(listener)
 
   return () => {
-    listeners = listeners.filter(l => l !== listener)
+    listeners = listeners.filter((l) => l !== listener)
   }
 }
 
 function notifyRequestChange() {
-  listeners.forEach(listener => listener())
+  listeners.forEach((listener) => listener())
 }
 
 function generateRequestId() {
   const prefix = "RQ"
 
-  const matchingIds = mockRequests
+  const matchingIds = requestDataSource
+    .getAll()
     .filter((request) => request.id.startsWith(`${prefix}-`))
     .map((request) => {
       const numericPart = Number(request.id.split("-")[1])
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber =
+    matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
   return `${prefix}-${nextNumber}`
 }
@@ -63,24 +90,109 @@ function normalizeRequest(record) {
   }
 }
 
+export function buildRequestItemsWithCost(request) {
+  if (!request) return []
+
+  return request.items.map((item) => {
+    const inventoryItem = findInventoryItemById(item.inventoryItemId)
+
+    const requestedQuantity = Number(item.requestedQuantity || 0)
+    const unitCost = Number(inventoryItem?.unitCost || 0)
+    const lineTotalCost = requestedQuantity * unitCost
+
+    return {
+      ...item,
+      name: inventoryItem?.name || `Inventory Item ${item.inventoryItemId}`,
+      sku: inventoryItem?.sku || "",
+      unit: inventoryItem?.unit || "",
+      category: inventoryItem?.category || "",
+      unitCost,
+      lineTotalCost,
+    }
+  })
+}
+
 export function getAllRequests() {
-  return mockRequests
+  return requestDataSource.getAll()
 }
 
 export function getRequestsPendingApproval() {
-  return mockRequests.filter(
+  return requestDataSource.getAll().filter(
     (request) => (request.statusValue || request.status) === "pending_approval"
   )
 }
 
+export function getPendingRequestCount() {
+  return requestDataSource.getAll().filter(
+    (request) => (request.statusValue || request.status) === "pending_approval"
+  ).length
+}
+
 export function getApprovedRequests() {
-  return mockRequests.filter(
+  return requestDataSource.getAll().filter(
     (request) => (request.statusValue || request.status) === "approved"
   )
 }
 
 export function findRequestById(id) {
-  return getRequestById(id)
+  return requestDataSource.findById(id)
+}
+
+export function buildRequestPayload({
+  requestForm,
+  requestedItems,
+  selectedLocationLabel = "",
+  selectedLocationType = "",
+  selectedProjectLabel = "",
+  selectedSourceWarehouseLabel = "",
+}) {
+  const priorityLabelMap = {
+    low: "Low",
+    normal: "Normal",
+    high: "High",
+    urgent: "Urgent",
+  }
+
+  return {
+    requestedBy: requestForm.requestedBy,
+    createdAt: requestForm.createdAt,
+
+    statusValue: "pending_approval",
+    status: "Pending Approval",
+
+    approvedBy: null,
+    approvedAt: null,
+
+    rejectedBy: null,
+    rejectedAt: null,
+
+    approvalNotes: "",
+
+    locationValue: requestForm.locationValue,
+    location: selectedLocationLabel,
+    locationType: selectedLocationType,
+
+    projectValue: requestForm.projectValue,
+    project: selectedProjectLabel,
+
+    neededByDate: requestForm.neededByDate,
+
+    priorityValue: requestForm.priorityValue,
+    priority: priorityLabelMap[requestForm.priorityValue] || "",
+
+    sourceWarehouseValue: requestForm.sourceWarehouseValue,
+    sourceWarehouse: selectedSourceWarehouseLabel,
+
+    deliveryLocationText: requestForm.deliveryLocationText.trim(),
+
+    notes: requestForm.notes,
+
+    items: requestedItems.map((item, index) => ({
+      id: index + 1,
+      inventoryItemId: Number(item.inventoryItemId),
+      requestedQuantity: Number(item.requestedQuantity),
+    })),
+  }
 }
 
 export function createRequest(newRequest) {
@@ -92,28 +204,25 @@ export function createRequest(newRequest) {
     status: newRequest.status || "Pending Approval",
   })
 
-  mockRequests.unshift(requestWithId)
-
+  const createdRequest = requestDataSource.insert(requestWithId)
   notifyRequestChange()
-
-  return requestWithId
+  return createdRequest
 }
 
 export function updateRequest(id, updates) {
-  const index = mockRequests.findIndex((request) => request.id === id)
+  const existingRequest = requestDataSource.findById(id)
+  if (!existingRequest) return null
 
-  if (index === -1) return null
-
-  mockRequests[index] = normalizeRequest({
-    ...mockRequests[index],
+  const updatedRequest = normalizeRequest({
+    ...existingRequest,
     ...updates,
   })
 
-  return mockRequests[index]
+  return requestDataSource.replaceById(id, updatedRequest)
 }
 
 export function approveRequest(id, approvedBy, approvalNotes = "") {
-  const result =  updateRequest(id, {
+  const result = updateRequest(id, {
     statusValue: "approved",
     status: "Approved",
     approvedBy,
@@ -124,12 +233,11 @@ export function approveRequest(id, approvedBy, approvalNotes = "") {
   })
 
   notifyRequestChange()
-
   return result
 }
 
 export function rejectRequest(id, rejectedBy, approvalNotes = "") {
-  const result =  updateRequest(id, {
+  const result = updateRequest(id, {
     statusValue: "rejected",
     status: "Rejected",
     approvedBy: null,
@@ -140,6 +248,5 @@ export function rejectRequest(id, rejectedBy, approvalNotes = "") {
   })
 
   notifyRequestChange()
-
   return result
 }

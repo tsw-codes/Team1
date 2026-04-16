@@ -1,7 +1,19 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createAuditTimestamp, formatAuditTimestamp, formatDate } from "../utils/dateUtils"
-import { createTransfer, getTransfersForPermissions, updateTransfer } from "../services/transferService"
-import { getAvailableManifestsForTransfer } from "../services/manifestService"
+import {
+    createTransfer,
+    getTransfersForPermissions,
+    subscribeToTransfers,
+    updateTransfer,
+} from "../services/transferService"
+import {
+    getAvailableManifestsForTransfer,
+    subscribeToManifests,
+} from "../services/manifestService"
+import {
+    applyTransferReceiptToInventory,
+    applyTransferShipmentToInventory,
+} from "../services/inventoryService"
 import Toast from "./Toast"
 import InfoHeader from "./InfoHeader"
 
@@ -14,9 +26,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const [toast, setToast] = useState({ message: "", type: "success" })
 
-    const availableManifests = getAvailableManifestsForTransfer(permissions)
+    const [availableManifests, setAvailableManifests] = useState(() =>
+        getAvailableManifestsForTransfer(permissions)
+    )
 
-    const availableTransfers = getTransfersForPermissions(permissions)
+    const [availableTransfers, setAvailableTransfers] = useState(() =>
+        getTransfersForPermissions(permissions)
+    )
 
     const [formError, setFormError] = useState("")
     const [transferErrors, setTransferErrors] = useState({})
@@ -35,6 +51,75 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const isReceiving = isTransfer && currentStatusValue === "in_transit"
     const isFinalized = isTransfer && currentStatusValue === "completed"
+
+    useEffect(() => {
+        function refreshWorkItems() {
+            setAvailableManifests(getAvailableManifestsForTransfer(permissions))
+            setAvailableTransfers(getTransfersForPermissions(permissions))
+        }
+
+        const unsubscribeManifests = subscribeToManifests(refreshWorkItems)
+        const unsubscribeTransfers = subscribeToTransfers(refreshWorkItems)
+
+        return () => {
+            unsubscribeManifests()
+            unsubscribeTransfers()
+        }
+    }, [permissions])
+
+    useEffect(() => {
+        if (!selectedWorkItem) return
+
+        const [recordType, recordId] = selectedWorkItem.split(":")
+
+        if (recordType === "manifest") {
+            const manifest = availableManifests.find((item) => item.id === recordId) || null
+
+            if (!manifest) {
+                setSelectedWorkItem("")
+                resetTransferSelection()
+                return
+            }
+
+            setActiveRecord((prev) => {
+                if (!prev || activeRecordType !== "manifest") return prev
+                return {
+                    ...manifest,
+                    shippedDate: prev.shippedDate || "",
+                }
+            })
+            return
+        }
+
+        if (recordType === "transfer") {
+            const transfer = availableTransfers.find((item) => item.id === recordId) || null
+
+            if (!transfer) {
+                setSelectedWorkItem("")
+                resetTransferSelection()
+                return
+            }
+
+            const normalizedTransfer =
+                (transfer.statusValue === "in_transit" || transfer.status === "In Transit")
+                    ? {
+                        ...transfer,
+                        items: transfer.items.map((item) => ({
+                            ...item,
+                            receivedQuantity:
+                                item.receivedQuantity === null || item.receivedQuantity === ""
+                                    ? item.shippedQuantity
+                                    : item.receivedQuantity,
+                        })),
+                    }
+                    : transfer
+
+            setActiveRecord((prev) => {
+                if (!prev || activeRecordType !== "transfer") return prev
+                return normalizedTransfer
+            })
+        }
+    }, [selectedWorkItem, availableManifests, availableTransfers, activeRecordType])
 
     function showToast(message, type = "success") {
         setToast({ message, type })
@@ -97,12 +182,12 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                     })),
                 } : transfer
 
-                setActiveRecord(normalizedTransfer)
-                setActiveRecordType("transfer")
-                setTransferErrors({})
-                setItemErrors({})
-                setFormError("")
-                return
+            setActiveRecord(normalizedTransfer)
+            setActiveRecordType("transfer")
+            setTransferErrors({})
+            setItemErrors({})
+            setFormError("")
+            return
         }
 
         resetTransferSelection()
@@ -319,7 +404,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             manifestId: activeRecord.id,
 
             requestId: activeRecord.requestId || "",
-            requestedBy: activeRecord.receivedBy || "",
+            requestedBy: activeRecord.requestedBy || "",
             approvedBy: activeRecord.approvedBy || "",
             approvedAt: activeRecord.approvedAt || null,
 
@@ -366,6 +451,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         }
 
         const createdTransfer = createTransfer(newTransfer)
+        applyTransferShipmentToInventory(createdTransfer)
 
         setSelectedWorkItem(`transfer:${createdTransfer.id}`)
         setActiveRecord(createdTransfer)
@@ -406,6 +492,8 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             return
         }
 
+        applyTransferReceiptToInventory(updatedTransfer)
+
         setActiveRecord(updatedTransfer)
 
         showToast(
@@ -414,6 +502,16 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                 : `Transfer shipment ${updatedTransfer.id} completed.`,
             updatedTransfer.completionOutcomeValue === "exception" ? "warning" : "success"
         )
+
+        setSelectedWorkItem("")
+        resetTransferSelection()
+
+        setTimeout(() => {
+            transferScrollRef.current?.scrollTo({
+                top: 0,
+                behavior: "smooth",
+            })
+        }, 0)
     }
 
     function getTransferTypeLabel(type) {
@@ -795,10 +893,17 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <div className="received-items-list">
                                 {activeRecord.items.map((item, index) => {
                                     const shippedQty = Number(item.shippedQuantity || 0)
-                                    const receivedQty = item.receivedQuantity === "" ? "" : Number(item.receivedQuantity)
-                                    const hasDiscrepancy = 
-                                        item.receivedQuantity !== "" &&
-                                        item.receivedQuantity !== null && 
+
+                                    const hasReceivedQuantity =
+                                        item.receivedQuantity !== undefined &&
+                                        item.receivedQuantity !== null &&
+                                        item.receivedQuantity !== ""
+
+                                    const receivedQty = hasReceivedQuantity ? Number(item.receivedQuantity) : ""
+
+                                    const hasDiscrepancy =
+                                        isTransfer &&
+                                        hasReceivedQuantity &&
                                         receivedQty !== shippedQty
 
                                     return (
@@ -942,7 +1047,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                             name="receivedDate"
                                             value={activeRecord.receivedDate || ""}
                                             onChange={handleTransferChange}
-                                            readOnly={!isReceiving}
+                                            disabled={!isReceiving}
                                         />
                                         {transferErrors.receivedDate && (
                                             <span className="field-error">{transferErrors.receivedDate}</span>

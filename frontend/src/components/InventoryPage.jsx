@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
 import { 
-    getInventoryItems, 
+    getInventoryItems,
+    getInventoryFilterOptions,
+    getInventorySummary,
+    subscribeToInventory,
     createInventoryAdjustment,
     canAdjustInventoryItemForPermissions,
 } from "../services/inventoryService"
@@ -252,20 +255,11 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     const [inventoryData, setInventoryData] = useState(() => [...getInventoryItems()])
 
     const filterOptions = useMemo(() => {
-        return {
-            projects: ["All", ...new Set(inventoryData.map((item) => item.project))],
-            categories: ["All", ...new Set(inventoryData.map((item) => item.category))],
-            statuses: ["All", ...new Set(inventoryData.map((item) => item.status))],
-        }
+        return getInventoryFilterOptions()
     }, [inventoryData])
 
     const summary = useMemo(() => {
-        return {
-            totalItems: inventoryData.length,
-            lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
-            outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
-            inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
-        }
+        return getInventorySummary()
     }, [inventoryData])
 
     const { projects, categories, statuses } = filterOptions
@@ -306,6 +300,32 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
         return () => window.removeEventListener("resize", handleResize)
     }, [])
+
+    useEffect(() => {
+        function refreshInventory() {
+            setInventoryData([...getInventoryItems()])
+        }
+
+        const unsubscribe = subscribeToInventory(refreshInventory)
+
+        return unsubscribe
+    }, [])
+
+    useEffect(() => {
+        if (!selectedItem) return
+
+        const refreshedSelectedItem =
+            inventoryData.find((item) => String(item.id) === String(selectedItem.id)) || null
+
+        if (!refreshedSelectedItem) {
+            setSelectedItem(null)
+            return
+        }
+
+        if (refreshedSelectedItem !== selectedItem) {
+            setSelectedItem(refreshedSelectedItem)
+        }
+    }, [inventoryData, selectedItem])
 
     function handleClearFilters() {
         setSearchTerm("")
@@ -377,11 +397,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
             return
         }
 
-        const refreshedInventory = [...getInventoryItems()]
-        setInventoryData(refreshedInventory)
-        setSelectedItem(
-            refreshedInventory.find((item) => String(item.id) === String(result.updatedItem.id)) || result.updatedItem
-        )
+        setSelectedItem(result.updatedItem)
         setAdjustError("")
         setIsAdjustModalOpen(false)
     }

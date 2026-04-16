@@ -2,36 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { formatAuditTimestamp, formatDate } from "../utils/dateUtils"
 import { 
     getRequestsPendingApproval,
-    findRequestById,
+    subscribeToRequests,
     approveRequest,
     rejectRequest,
+    buildRequestItemsWithCost,
 } from "../services/requestService"
-import { findInventoryItemById } from "../services/inventoryService"
+import { subscribeToInventory } from "../services/inventoryService"
 import { formatCurrency } from "../utils/formatters"
 import Toast from "./Toast"
 import FilterHeader from "./FilterHeader"
-
-function buildRequestItemsWithCost(request) {
-    if (!request) return []
-
-    return request.items.map((item) => {
-        const inventoryItem = findInventoryItemById(item.inventoryItemId)
-
-        const requestedQuantity = Number(item.requestedQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
-        const lineTotalCost = requestedQuantity * unitCost
-
-        return {
-            ...item,
-            name: inventoryItem?.name || `Inventory Item ${item.inventoryItemId}`,
-            sku: inventoryItem?.sku || "",
-            unit: inventoryItem?.unit || "",
-            category: inventoryItem?.category || "",
-            unitCost,
-            lineTotalCost,
-        }
-    })
-}
 
 function getPriorityBadgeClass(priorityValue) {
     switch (priorityValue) {
@@ -57,6 +36,7 @@ function PendingRequestDetailContent({
     onReject,
     onClose,
     showClose = false,
+    requestRefs,
 }) {
     if(!request) return null
 
@@ -228,6 +208,7 @@ function PendingRequestDetailContent({
                 <label className="form-group">
                     <span className="form-label">Approval Notes</span>
                     <textarea 
+                        ref={(el) => (requestRefs.current.approvalNotes = el)}
                         className={`form-textarea ${approvalError ? "input-error": ""}`}
                         name="approvalNotes"
                         value={approvalNotes}
@@ -261,6 +242,7 @@ function PendingRequestModal({
     onApprove,
     onReject,
     onClose,
+    requestRefs,
 }) {
     if (!request) return null
 
@@ -276,6 +258,7 @@ function PendingRequestModal({
                     onReject={onReject}
                     onClose={onClose}
                     showClose={true}
+                    requestRefs={requestRefs}
                 />
             </div>
         </div>
@@ -304,6 +287,16 @@ function PendingRequestsPage({ onBack, currentUser }) {
     const [approvalError, setApprovalError] = useState("")
     const [formError, setFormError] = useState("")
 
+    const [inventoryVersion, setInventoryVersion] = useState(0)
+
+    useEffect(() => {
+        const unsubscribe = subscribeToInventory(() => {
+            setInventoryVersion((v) => v + 1)
+        })
+
+        return unsubscribe
+    }, [])
+
     useEffect(() => {
         function handleResize() {
             setIsMobile(window.innerWidth <= 900)
@@ -311,6 +304,16 @@ function PendingRequestsPage({ onBack, currentUser }) {
 
         window.addEventListener("resize", handleResize)
         return () => window.removeEventListener("resize", handleResize)
+    }, [])
+
+    useEffect(() => {
+        function refreshRequests() {
+            setPendingRequests(getRequestsPendingApproval())
+        }
+
+        const unsubscribe = subscribeToRequests(refreshRequests)
+
+        return unsubscribe
     }, [])
 
     function handleClearFilters() {
@@ -330,12 +333,11 @@ function PendingRequestsPage({ onBack, currentUser }) {
         }, 3000)
     }
 
-    function refreshPendingRequests() {
-        setPendingRequests(getRequestsPendingApproval())
-    }
-
     function openRequestDetails(requestId) {
-        const request = findRequestById(requestId)
+        const request =
+        pendingRequests.find(
+            (req) => String(req.id) === String(requestId)
+        ) || null
 
         if (!request || request.statusValue !== "pending_approval") return
 
@@ -397,7 +399,6 @@ function PendingRequestsPage({ onBack, currentUser }) {
             return
         }
 
-        refreshPendingRequests()
         closeRequestDetails()
         showToast(`Request ${selectedRequest.id} approved.`)
     }
@@ -419,7 +420,6 @@ function PendingRequestsPage({ onBack, currentUser }) {
             return
         }
 
-        refreshPendingRequests()
         closeRequestDetails()
         showToast(`Request ${selectedRequest.id} rejected.`, "error")
     }
@@ -438,7 +438,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
                 totalCost,
             }
         })
-    }, [pendingRequests])
+    }, [pendingRequests, inventoryVersion])
 
     const filterOptions = useMemo(() => {
         return {
@@ -690,6 +690,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
                         onApprove={handleApproveRequest}
                         onReject={handleRejectRequest}
                         onClose={closeRequestDetails}
+                        requestRefs={requestRefs}
                     />
                 </div>
             </div>

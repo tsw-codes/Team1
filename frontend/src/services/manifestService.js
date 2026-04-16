@@ -1,4 +1,9 @@
-import { mockManifests, getManifestById } from "../data/mockManifests"
+import { mockManifests } from "../data/mockManifests"
+import { createAuditTimestamp } from "../utils/dateUtils"
+import {
+  getSiteLocationOptions,
+  getWarehouseLocationOptions,
+} from "./projectService"
 
 const manifestPermissionMap = {
   outbound: "create_outbound_manifest",
@@ -12,6 +17,44 @@ const transferPermissionMap = {
   warehouse_transfer: "transfer_to_warehouse",
 }
 
+const manifestDataSource = {
+  getAll() {
+    return mockManifests
+  },
+
+  findById(id) {
+    return mockManifests.find((manifest) => manifest.id === id) || null
+  },
+
+  insert(manifest) {
+    mockManifests.unshift(manifest)
+    return manifest
+  },
+
+  replaceById(id, updatedManifest) {
+    const index = mockManifests.findIndex((manifest) => manifest.id === id)
+
+    if (index === -1) return null
+
+    mockManifests[index] = updatedManifest
+    return mockManifests[index]
+  },
+}
+
+let manifestListeners = []
+
+export function subscribeToManifests(listener) {
+  manifestListeners.push(listener)
+
+  return () => {
+    manifestListeners = manifestListeners.filter((l) => l !== listener)
+  }
+}
+
+function notifyManifestChange() {
+  manifestListeners.forEach((listener) => listener())
+}
+
 function getManifestPrefix(manifestType) {
   if (manifestType === "outbound") return "MO"
   if (manifestType === "return") return "MR"
@@ -22,24 +65,26 @@ function getManifestPrefix(manifestType) {
 function generateManifestId(manifestType) {
   const prefix = getManifestPrefix(manifestType)
 
-  const matchingIds = mockManifests
+  const matchingIds = manifestDataSource
+    .getAll()
     .filter((manifest) => manifest.id.startsWith(`${prefix}-`))
     .map((manifest) => {
       const numericPart = Number(manifest.id.split("-")[1])
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber =
+    matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
   return `${prefix}-${nextNumber}`
 }
 
 export function getAllManifests() {
-  return mockManifests
+  return manifestDataSource.getAll()
 }
 
 export function findManifestById(id) {
-  return getManifestById(id)
+  return manifestDataSource.findById(id)
 }
 
 export function getAllowedManifestModes(permissions = []) {
@@ -48,13 +93,114 @@ export function getAllowedManifestModes(permissions = []) {
   )
 }
 
+export function getAllowedSourceLocations(manifestMode) {
+  if (manifestMode === "return") {
+    return getSiteLocationOptions()
+  }
+
+  if (manifestMode === "warehouse_transfer") {
+    return getWarehouseLocationOptions()
+  }
+
+  if (manifestMode === "outbound") {
+    return getWarehouseLocationOptions()
+  }
+
+  return []
+}
+
+export function getAllowedDestinationLocations(manifestMode) {
+  if (manifestMode === "return") {
+    return getWarehouseLocationOptions()
+  }
+
+  if (manifestMode === "warehouse_transfer") {
+    return getWarehouseLocationOptions()
+  }
+
+  if (manifestMode === "outbound") {
+    return getSiteLocationOptions()
+  }
+
+  return []
+}
+
 export function getAvailableManifestsForTransfer(permissions = []) {
-  return mockManifests.filter((manifest) => {
+  return manifestDataSource.getAll().filter((manifest) => {
     if ((manifest.statusValue || manifest.status) !== "finalized") return false
 
     const requiredPermission = transferPermissionMap[manifest.manifestType]
     return requiredPermission ? permissions.includes(requiredPermission) : false
   })
+}
+
+export function buildManifestPayload({
+  manifestMode,
+  manifestForm,
+  editableManifestItems,
+  selectedSourceLocation,
+  selectedDestinationLocation,
+  requestableInventoryItems,
+  manualSourceInventory,
+  currentUser,
+}) {
+  const finalizedAt = createAuditTimestamp()
+  const finalizedBy = currentUser?.username || "unknown"
+
+  return {
+    manifestTypeValue: manifestMode,
+    manifestType: manifestMode,
+    statusValue: "finalized",
+    status: "Finalized",
+
+    requestId: manifestForm.requestId,
+    requestedBy: manifestForm.requestedBy,
+    approvedBy: manifestForm.approvedBy,
+    approvedAt: manifestForm.approvedAt,
+
+    createdBy: manifestForm.createdBy,
+    createdAt: manifestForm.createdAt,
+
+    manifestDate: manifestForm.manifestDate,
+
+    locationValue: manifestForm.locationValue,
+    location: manifestForm.location,
+    projectValue: manifestForm.projectValue,
+    project: manifestForm.project,
+
+    finalizedBy,
+    finalizedAt,
+
+    sourceLocationValue: manifestForm.sourceLocationValue,
+    sourceLocation: selectedSourceLocation?.label || "",
+
+    destinationLocationValue: manifestForm.destinationLocationValue,
+    destinationLocation: selectedDestinationLocation?.label || "",
+    destinationDetail: manifestForm.destinationDetail || "",
+
+    notes: manifestForm.notes,
+
+    items: editableManifestItems.map((item) => {
+      const inventoryItem =
+        manifestMode === "outbound"
+          ? requestableInventoryItems.find(
+              (inventory) => inventory.id === item.inventoryItemId
+            )
+          : manualSourceInventory.find(
+              (inventory) => String(inventory.id) === String(item.inventoryItemId)
+            )
+
+      return {
+        id: item.id,
+        inventoryItemId: Number(item.inventoryItemId),
+        materialId: inventoryItem?.materialId || "",
+        name: inventoryItem?.name || "",
+        sku: inventoryItem?.sku || "",
+        unit: inventoryItem?.unit || "",
+        manifestQuantity: Number(item.manifestQuantity || 0),
+      }
+    }),
+  }
 }
 
 export function createManifest(newManifest) {
@@ -67,19 +213,21 @@ export function createManifest(newManifest) {
     status: newManifest.status || "Finalized",
   }
 
-  mockManifests.unshift(manifestWithId)
-  return manifestWithId
+  const createdManifest = manifestDataSource.insert(manifestWithId)
+  notifyManifestChange()
+  return createdManifest
 }
 
 export function updateManifest(id, updates) {
-  const index = mockManifests.findIndex((manifest) => manifest.id === id)
+  const existingManifest = manifestDataSource.findById(id)
+  if (!existingManifest) return null
 
-  if (index === -1) return null
-
-  mockManifests[index] = {
-    ...mockManifests[index],
+  const updatedManifest = {
+    ...existingManifest,
     ...updates,
   }
 
-  return mockManifests[index]
+  const result = manifestDataSource.replaceById(id, updatedManifest)
+  notifyManifestChange()
+  return result
 }
