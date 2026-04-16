@@ -15,6 +15,7 @@ import ManifestInventoryPage from './components/ManifestInventoryPage'
 import TransferInventoryPage from './components/TransferInventoryPage'
 import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
+import EnterPurchaseOrderPage from './components/EnterPurchaseOrderPage'
 
 import { getPermissionsForRole } from './auth/permissions'
 import { authenticateUser, updateUserPassword, signOut, getCurrentSession, onAuthStateChange } from './services/authService'
@@ -492,6 +493,22 @@ function App() {
                         <ShipmentTrackingPage
                           onBack={handleGoHome}
                           permissions={permissions}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route 
+                  path='/enter-purchase-order'
+                  element={
+                    isLoggedIn && permissions.includes("upload_purchase_orders") ? (
+                      <PageTransition direction={navDirection}>
+                        <EnterPurchaseOrderPage
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
                         />
                       </PageTransition>
                     ) : (

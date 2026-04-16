@@ -2,37 +2,16 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { formatAuditTimestamp, formatDate } from "../utils/dateUtils"
 import { 
     getRequestsPendingApproval,
-    findRequestById,
+    subscribeToRequests,
     approveRequest,
     rejectRequest,
+    buildRequestItemsWithCost,
 } from "../services/requestService"
-import { findInventoryItemById } from "../services/inventoryService"
+import { subscribeToInventory } from "../services/inventoryService"
 import { formatCurrency } from "../utils/formatters"
 import { useAsyncData } from "../hooks/useAsyncData"
 import Toast from "./Toast"
 import FilterHeader from "./FilterHeader"
-
-async function buildRequestItemsWithCost(request) {
-    if (!request) return []
-
-    return Promise.all(request.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
-        const requestedQuantity = Number(item.requestedQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
-        const lineTotalCost = requestedQuantity * unitCost
-
-        return {
-            ...item,
-            name: inventoryItem?.name || `Inventory Item ${item.inventoryItemId}`,
-            sku: inventoryItem?.sku || "",
-            unit: inventoryItem?.unit || "",
-            category: inventoryItem?.category || "",
-            unitCost,
-            lineTotalCost,
-        }
-    }))
-}
 
 function getPriorityBadgeClass(priorityValue) {
     switch (priorityValue) {
@@ -58,6 +37,7 @@ function PendingRequestDetailContent({
     onReject,
     onClose,
     showClose = false,
+    requestRefs,
 }) {
     const [requestItems, setRequestItems] = useState([])
 
@@ -239,6 +219,7 @@ function PendingRequestDetailContent({
                 <label className="form-group">
                     <span className="form-label">Approval Notes</span>
                     <textarea 
+                        ref={(el) => (requestRefs.current.approvalNotes = el)}
                         className={`form-textarea ${approvalError ? "input-error": ""}`}
                         name="approvalNotes"
                         value={approvalNotes}
@@ -272,6 +253,7 @@ function PendingRequestModal({
     onApprove,
     onReject,
     onClose,
+    requestRefs,
 }) {
     if (!request) return null
 
@@ -287,6 +269,7 @@ function PendingRequestModal({
                     onReject={onReject}
                     onClose={onClose}
                     showClose={true}
+                    requestRefs={requestRefs}
                 />
             </div>
         </div>
@@ -314,6 +297,36 @@ function PendingRequestsPage({ onBack, currentUser }) {
     const [approvalError, setApprovalError] = useState("")
     const [formError, setFormError] = useState("")
 
+    const [inventoryVersion, setInventoryVersion] = useState(0)
+
+    useEffect(() => {
+        const unsubscribe = subscribeToInventory(() => {
+            setInventoryVersion((v) => v + 1)
+        })
+
+        return unsubscribe
+    }, [])
+
+    useEffect(() => {
+        function handleResize() {
+            setIsMobile(window.innerWidth <= 900)
+        }
+
+        window.addEventListener("resize", handleResize)
+        return () => window.removeEventListener("resize", handleResize)
+    }, [])
+
+    useEffect(() => {
+        async function refreshRequests() {
+            const updated = await getRequestsPendingApproval()
+            setPendingRequests(updated)
+        }
+
+        const unsubscribe = subscribeToRequests(refreshRequests)
+
+        return unsubscribe
+    }, [setPendingRequests])
+
     function handleClearFilters() {
         setSearchTerm("")
         setProjectFilter("All")
@@ -336,8 +349,11 @@ function PendingRequestsPage({ onBack, currentUser }) {
         setPendingRequests(updated)
     }
 
-    async function openRequestDetails(requestId) {
-        const request = await findRequestById(requestId)
+    function openRequestDetails(requestId) {
+        const request =
+        (pendingRequests ?? []).find(
+            (req) => String(req.id) === String(requestId)
+        ) || null
 
         if (!request || request.statusValue !== "pending_approval") return
 
@@ -441,7 +457,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
                 totalCost,
             }
         }))
-    }, [pendingRequests])
+    }, [pendingRequests, inventoryVersion])
 
     const { data: requestSummaries, loading: summariesLoading } = useAsyncData(buildSummaries, [buildSummaries])
 
@@ -699,6 +715,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
                         onApprove={handleApproveRequest}
                         onReject={handleRejectRequest}
                         onClose={closeRequestDetails}
+                        requestRefs={requestRefs}
                     />
                 </div>
             </div>

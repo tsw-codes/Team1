@@ -25,12 +25,13 @@ function PasswordInput({
                 placeholder={placeholder}
                 autoComplete={autoComplete}
                 disabled={disabled}
-                className={`form-input ${className}`}
+                className={`form-input${className ? ` ${className}` : ""}`}
             />
 
             <button
                 type="button"
                 className="password-toggle"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setShow((prev) => !prev)}
                 aria-label={show ? "Hide password" : "Show password"}
                 title={show ? "Hide password" : "Show password"}

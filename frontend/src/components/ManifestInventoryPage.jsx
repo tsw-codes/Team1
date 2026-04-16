@@ -1,17 +1,25 @@
 import { useMemo, useRef, useState } from "react"
 import { useAsyncData } from "../hooks/useAsyncData"
 import { createAuditTimestamp, formatAuditTimestamp } from "../utils/dateUtils"
-import { getApprovedRequests, findRequestById } from "../services/requestService"
-import { getAllowedManifestModes, createManifest } from "../services/manifestService"
+import {
+    getAllowedManifestModes,
+    buildManifestPayload,
+    createManifest,
+} from "../services/manifestService"
+import {
+    getApprovedRequests,
+    subscribeToRequests,
+} from "../services/requestService"
 import {
     getRequestableInventory,
     findRequestableInventoryItemById,
     getManualSourceInventory,
+    subscribeToInventory,
 } from "../services/inventoryService"
 import {
+    getLocationByValue,
     getSiteLocationOptions,
     getWarehouseLocationOptions,
-    getLocationByValue,
 } from "../services/projectService"
 import Toast from "./Toast"
 import InfoHeader from "./InfoHeader"
@@ -56,43 +64,31 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         allowedManifestModes.length === 1 ? allowedManifestModes[0] : ""
     )
 
-    const { data: approvedRequestOptions } = useAsyncData(() => getApprovedRequests(), [])
+    const { data: approvedRequestOptions, setData: setApprovedRequestOptions } = useAsyncData(
+        () => getApprovedRequests(),
+        []
+    )
 
-    const { data: requestableInventoryItems } = useAsyncData(() => getRequestableInventory(), [])
+    const { data: requestableInventoryItems, setData: setRequestableInventoryItems } = useAsyncData(
+        () => getRequestableInventory(),
+        []
+    )
 
     const { data: warehouseLocationOptions } = useAsyncData(() => getWarehouseLocationOptions(), [])
 
     const { data: siteLocationOptions } = useAsyncData(() => getSiteLocationOptions(), [])
 
     const allowedSourceLocationOptions = useMemo(() => {
-        if (manifestMode === "return") {
-            return siteLocationOptions ?? []
-        }
-
-        if (manifestMode === "warehouse_transfer") {
-            return warehouseLocationOptions ?? []
-        }
-
-        if (manifestMode === "outbound") {
-            return warehouseLocationOptions ?? []
-        }
-
+        if (manifestMode === "return") return siteLocationOptions ?? []
+        if (manifestMode === "warehouse_transfer") return warehouseLocationOptions ?? []
+        if (manifestMode === "outbound") return warehouseLocationOptions ?? []
         return []
     }, [manifestMode, siteLocationOptions, warehouseLocationOptions])
 
     const allowedDestinationLocationOptions = useMemo(() => {
-        if (manifestMode === "return") {
-            return warehouseLocationOptions ?? []
-        }
-
-        if (manifestMode === "warehouse_transfer") {
-            return warehouseLocationOptions ?? []
-        }
-
-        if (manifestMode === "outbound") {
-            return siteLocationOptions ?? []
-        }
-
+        if (manifestMode === "return") return warehouseLocationOptions ?? []
+        if (manifestMode === "warehouse_transfer") return warehouseLocationOptions ?? []
+        if (manifestMode === "outbound") return siteLocationOptions ?? []
         return []
     }, [manifestMode, siteLocationOptions, warehouseLocationOptions])
 
@@ -130,10 +126,13 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const [editableManifestItems, setEditableManifestItems] = useState([])
 
-    const { data: selectedRequest } = useAsyncData(
-        () => manifestForm.requestId ? findRequestById(manifestForm.requestId) : null,
-        [manifestForm.requestId]
-    )
+    const selectedRequest = useMemo(() => {
+        return (
+            (approvedRequestOptions ?? []).find(
+                (request) => String(request.id) === String(manifestForm.requestId)
+            ) || null
+        )
+    }, [manifestForm.requestId, approvedRequestOptions])
 
     const { data: selectedSourceLocation } = useAsyncData(
         () => manifestForm.sourceLocationValue ? getLocationByValue(manifestForm.sourceLocationValue) : null,
@@ -180,6 +179,106 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         }))
     }
 
+    useEffect(() => {
+        async function refreshRequests() {
+            const updated = await getApprovedRequests()
+            setApprovedRequestOptions(updated)
+        }
+
+        const unsubscribe = subscribeToRequests(refreshRequests)
+        return unsubscribe
+    }, [setApprovedRequestOptions])
+
+    useEffect(() => {
+        if (manifestMode !== "outbound") return
+        if (!manifestForm.requestId) return
+
+        const stillExists = (approvedRequestOptions ?? []).some(
+            (request) => String(request.id) === String(manifestForm.requestId)
+        )
+
+        if (!stillExists) {
+            resetManifestState()
+
+            setManifestForm((prev) => ({
+                ...prev,
+                requestId: "",
+                requestedBy: "",
+                approvedBy: "",
+                approvedAt: null,
+                locationValue: "",
+                location: "",
+                projectValue: "",
+                project: "",
+                sourceLocationValue: "",
+                destinationLocationValue: "",
+                destinationDetail: "",
+                notes: "",
+            }))
+        }
+    }, [approvedRequestOptions, manifestForm.requestId, manifestMode])
+
+    useEffect(() => {
+        async function refreshInventory() {
+            const updated = await getRequestableInventory()
+            setRequestableInventoryItems(updated)
+        }
+
+        const unsubscribe = subscribeToInventory(refreshInventory)
+        return unsubscribe
+    }, [setRequestableInventoryItems])
+
+    useEffect(() => {
+        if (!manifestMode || manifestMode === "outbound") {
+            setManualSourceInventory([])
+            return
+        }
+
+        if (!manifestForm.sourceLocationValue) {
+            setManualSourceInventory([])
+            return
+        }
+
+        let cancelled = false
+        getManualSourceInventory(manifestMode, manifestForm.sourceLocationValue)
+            .then((inventory) => {
+                if (!cancelled) setManualSourceInventory(inventory ?? [])
+            })
+
+        return () => { cancelled = true }
+    }, [manifestMode, manifestForm.sourceLocationValue, requestableInventoryItems])
+
+    useEffect(() => {
+        if (manifestMode === "outbound") return
+        if (editableManifestItems.length === 0) return
+
+        setEditableManifestItems((prev) =>
+            prev.map((item) => {
+                if (!item.inventoryItemId) return item
+
+                const matchingInventory = manualSourceInventory.find(
+                    (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
+                )
+
+                if (!matchingInventory) {
+                    return {
+                        ...item,
+                        inventoryItemId: "",
+                        manifestQuantity: null,
+                    }
+                }
+
+                const availableQty = Number(matchingInventory.quantity || 0)
+                const currentQty = Number(item.manifestQuantity || 0)
+
+                return {
+                    ...item,
+                    manifestQuantity: currentQty > availableQty ? availableQty : item.manifestQuantity,
+                }
+            })
+        )
+    }, [manualSourceInventory, manifestMode])
+
     function showToast(message, type = "success") {
         setToast({ message, type })
 
@@ -195,7 +294,10 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         if (name === "requestId" && manifestMode === "outbound") {
             resetManifestState()
 
-            const request = await findRequestById(value)
+            const request =
+                (approvedRequestOptions ?? []).find(
+                    (requestOption) => String(requestOption.id) === String(value)
+                ) || null
 
             setManifestForm((prev) => ({
                 ...prev,
@@ -228,8 +330,6 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         if (name === "sourceLocationValue" && manifestMode !== "outbound") {
             resetManifestState()
 
-            const inventory = await getManualSourceInventory(manifestMode, value)
-
             setManifestForm((prev) => ({
                 ...prev,
                 requestId: "",
@@ -240,8 +340,6 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                 destinationLocationValue: value === prev.destinationLocationValue ? "" : prev.destinationLocationValue,
                 destinationDetail: "",
             }))
-
-            setManualSourceInventory(inventory)
 
             if (formError) {
                 setFormError("")
@@ -512,59 +610,18 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
         const isValid = validateManifestForm()
         if(!isValid) return
 
-        const finalizedAt = createAuditTimestamp()
-        const finalizedBy = currentUser?.username || "unknown"
+        const manifestPayload = buildManifestPayload({
+            manifestMode,
+            manifestForm,
+            editableManifestItems,
+            selectedSourceLocation,
+            selectedDestinationLocation,
+            requestableInventoryItems,
+            manualSourceInventory,
+            currentUser,
+        })
 
-        const newManifest = {
-            manifestTypeValue: manifestMode,
-            manifestType: manifestMode,
-            statusValue: "finalized",
-            status: "Finalized",
-
-            requestId: manifestForm.requestId,
-            requestedBy: manifestForm.requestedBy,
-            approvedBy: manifestForm.approvedBy,
-            approvedAt: manifestForm.approvedAt,
-
-            createdBy: manifestForm.createdBy,
-            createdAt: manifestForm.createdAt,
-
-            manifestDate: manifestForm.manifestDate,
-
-            locationValue: manifestForm.locationValue,
-            location: manifestForm.location,
-            projectValue: manifestForm.projectValue,
-            project: manifestForm.project,
-
-            finalizedBy,
-            finalizedAt,
-
-            sourceLocationValue: manifestForm.sourceLocationValue,
-            sourceLocation: selectedSourceLocation?.label || "",
-
-            destinationLocationValue: manifestForm.destinationLocationValue,
-            destinationLocation: selectedDestinationLocation?.label || "",
-            destinationDetail: manifestForm.destinationDetail || "",
-
-            notes: manifestForm.notes,
-
-            items: editableManifestItems.map((item) => {
-                const inventoryItem = manifestMode === "outbound"
-                    ? (requestableInventoryItems ?? []).find((inventory) => inventory.id === item.inventoryItemId)
-                    : manualSourceInventory.find((inventory) => String(inventory.id) === String(item.inventoryItemId))
-
-                return {
-                    id: item.id,
-                    inventoryItemId: Number(item.inventoryItemId),
-                    name: inventoryItem?.name || "",
-                    sku: inventoryItem?.sku || "",
-                    unit: inventoryItem?.unit || "",
-                    manifestQuantity: Number(item.manifestQuantity || 0),
-                }
-            }),
-        }
-
-        const createdManifest = await createManifest(newManifest)
+        const createdManifest = await createManifest(manifestPayload)
 
         setManifestForm((prev) => ({
             ...prev,

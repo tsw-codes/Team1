@@ -1,6 +1,11 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel, camelToSnake } from '../utils/caseUtils'
-import { mockManifests, getManifestById } from "../data/mockManifests"
+import { mockManifests } from "../data/mockManifests"
+import { createAuditTimestamp } from "../utils/dateUtils"
+import {
+  getSiteLocationOptions,
+  getWarehouseLocationOptions,
+} from "./projectService"
 
 const manifestPermissionMap = {
   outbound: "create_outbound_manifest",
@@ -12,6 +17,20 @@ const transferPermissionMap = {
   outbound: "transfer_to_job_site",
   return: "transfer_to_warehouse",
   warehouse_transfer: "transfer_to_warehouse",
+}
+
+let manifestListeners = []
+
+export function subscribeToManifests(listener) {
+  manifestListeners.push(listener)
+
+  return () => {
+    manifestListeners = manifestListeners.filter((l) => l !== listener)
+  }
+}
+
+function notifyManifestChange() {
+  manifestListeners.forEach((listener) => listener())
 }
 
 // --- Mock-only helpers ---
@@ -33,7 +52,8 @@ function generateManifestId(manifestType) {
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber =
+    matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
   return `${prefix}-${nextNumber}`
 }
@@ -70,9 +90,10 @@ function mapManifestRows(data) {
   return rows.map(mapManifestRow)
 }
 
-/**
- * Returns all manifests.
- */
+/* =========================
+   READ FUNCTIONS
+========================= */
+
 export async function getAllManifests() {
   if (USE_MOCK) return mockManifests
 
@@ -85,11 +106,8 @@ export async function getAllManifests() {
   return mapManifestRows(data)
 }
 
-/**
- * Finds a single manifest by ID.
- */
 export async function findManifestById(id) {
-  if (USE_MOCK) return getManifestById(id)
+  if (USE_MOCK) return mockManifests.find((m) => m.id === id) || null
 
   const { data, error } = await supabase
     .from('manifests_view')
@@ -101,9 +119,12 @@ export async function findManifestById(id) {
   return mapManifestRows(data)?.[0] || null
 }
 
+/* =========================
+   PERMISSION HELPERS (sync, pure)
+========================= */
+
 /**
  * Returns which manifest modes the user's permissions allow.
- * Pure permission check — no DB query needed.
  */
 export function getAllowedManifestModes(permissions = []) {
   return Object.keys(manifestPermissionMap).filter((mode) =>
@@ -111,14 +132,33 @@ export function getAllowedManifestModes(permissions = []) {
   )
 }
 
-/**
- * Returns finalized manifests that the user has permission to create transfers for.
- */
+/* =========================
+   LOCATION HELPERS
+   These delegate to projectService, which is async.
+========================= */
+
+export async function getAllowedSourceLocations(manifestMode) {
+  if (manifestMode === "return") return getSiteLocationOptions()
+  if (manifestMode === "warehouse_transfer") return getWarehouseLocationOptions()
+  if (manifestMode === "outbound") return getWarehouseLocationOptions()
+  return []
+}
+
+export async function getAllowedDestinationLocations(manifestMode) {
+  if (manifestMode === "return") return getWarehouseLocationOptions()
+  if (manifestMode === "warehouse_transfer") return getWarehouseLocationOptions()
+  if (manifestMode === "outbound") return getSiteLocationOptions()
+  return []
+}
+
+/* =========================
+   AVAILABLE MANIFESTS FOR TRANSFER
+========================= */
+
 export async function getAvailableManifestsForTransfer(permissions = []) {
   if (USE_MOCK) {
     return mockManifests.filter((manifest) => {
       if ((manifest.statusValue || manifest.status) !== "finalized") return false
-
       const requiredPermission = transferPermissionMap[manifest.manifestType]
       return requiredPermission ? permissions.includes(requiredPermission) : false
     })
@@ -139,6 +179,83 @@ export async function getAvailableManifestsForTransfer(permissions = []) {
   })
 }
 
+/* =========================
+   FORM HELPERS
+========================= */
+
+export function buildManifestPayload({
+  manifestMode,
+  manifestForm,
+  editableManifestItems,
+  selectedSourceLocation,
+  selectedDestinationLocation,
+  requestableInventoryItems,
+  manualSourceInventory,
+  currentUser,
+}) {
+  const finalizedAt = createAuditTimestamp()
+  const finalizedBy = currentUser?.username || "unknown"
+
+  return {
+    manifestTypeValue: manifestMode,
+    manifestType: manifestMode,
+    statusValue: "finalized",
+    status: "Finalized",
+
+    requestId: manifestForm.requestId,
+    requestedBy: manifestForm.requestedBy,
+    approvedBy: manifestForm.approvedBy,
+    approvedAt: manifestForm.approvedAt,
+
+    createdBy: manifestForm.createdBy,
+    createdAt: manifestForm.createdAt,
+
+    manifestDate: manifestForm.manifestDate,
+
+    locationValue: manifestForm.locationValue,
+    location: manifestForm.location,
+    projectValue: manifestForm.projectValue,
+    project: manifestForm.project,
+
+    finalizedBy,
+    finalizedAt,
+
+    sourceLocationValue: manifestForm.sourceLocationValue,
+    sourceLocation: selectedSourceLocation?.label || "",
+
+    destinationLocationValue: manifestForm.destinationLocationValue,
+    destinationLocation: selectedDestinationLocation?.label || "",
+    destinationDetail: manifestForm.destinationDetail || "",
+
+    notes: manifestForm.notes,
+
+    items: editableManifestItems.map((item) => {
+      const inventoryItem =
+        manifestMode === "outbound"
+          ? requestableInventoryItems.find(
+              (inventory) => inventory.id === item.inventoryItemId
+            )
+          : manualSourceInventory.find(
+              (inventory) => String(inventory.id) === String(item.inventoryItemId)
+            )
+
+      return {
+        id: item.id,
+        inventoryItemId: Number(item.inventoryItemId),
+        materialId: inventoryItem?.materialId || "",
+        name: inventoryItem?.name || "",
+        sku: inventoryItem?.sku || "",
+        unit: inventoryItem?.unit || "",
+        manifestQuantity: Number(item.manifestQuantity || 0),
+      }
+    }),
+  }
+}
+
+/* =========================
+   WRITE FUNCTIONS
+========================= */
+
 /**
  * Creates a new manifest with its line items.
  * Expects camelCase input matching the mock data shape.
@@ -155,6 +272,7 @@ export async function createManifest(newManifest) {
     }
 
     mockManifests.unshift(manifestWithId)
+    notifyManifestChange()
     return manifestWithId
   }
 
@@ -201,7 +319,9 @@ export async function createManifest(newManifest) {
   }
 
   // Re-fetch from view to get joined labels + items
-  return findManifestById(manifest.id)
+  const created = await findManifestById(manifest.id)
+  notifyManifestChange()
+  return created
 }
 
 /**
@@ -217,6 +337,7 @@ export async function updateManifest(id, updates) {
       ...updates,
     }
 
+    notifyManifestChange()
     return mockManifests[index]
   }
 
@@ -238,5 +359,7 @@ export async function updateManifest(id, updates) {
 
   if (error) throw new Error(error.message)
 
-  return findManifestById(id)
+  const result = await findManifestById(id)
+  notifyManifestChange()
+  return result
 }

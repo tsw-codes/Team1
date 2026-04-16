@@ -3,6 +3,9 @@ import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
 import {
     getInventoryItems,
+    getInventoryFilterOptions,
+    getInventorySummary,
+    subscribeToInventory,
     createInventoryAdjustment,
     canAdjustInventoryItemForPermissions,
 } from "../services/inventoryService"
@@ -260,24 +263,17 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     )
     const inventoryData = useMemo(() => rawInventoryData ?? [], [rawInventoryData])
 
-    const filterOptions = useMemo(() => {
-        return {
-            projects: ["All", ...new Set(inventoryData.map((item) => item.project))],
-            categories: ["All", ...new Set(inventoryData.map((item) => item.category))],
-            statuses: ["All", ...new Set(inventoryData.map((item) => item.status))],
-        }
-    }, [inventoryData])
+    const { data: filterOptions } = useAsyncData(
+        () => getInventoryFilterOptions(),
+        [inventoryData]
+    )
+    const { data: rawSummary } = useAsyncData(
+        () => getInventorySummary(),
+        [inventoryData]
+    )
+    const summary = rawSummary ?? { totalItems: 0, lowStock: 0, outOfStock: 0, inTransit: 0 }
 
-    const summary = useMemo(() => {
-        return {
-            totalItems: inventoryData.length,
-            lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
-            outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
-            inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
-        }
-    }, [inventoryData])
-
-    const { projects, categories, statuses } = filterOptions
+    const { projects = ["All"], categories = ["All"], statuses = ["All"] } = filterOptions ?? {}
 
     const filteredItems = useMemo(() => {
         return inventoryData.filter((item) => {
@@ -315,6 +311,33 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
         return () => window.removeEventListener("resize", handleResize)
     }, [])
+
+    useEffect(() => {
+        async function refreshInventory() {
+            const refreshed = await getInventoryItems()
+            setRawInventoryData(refreshed)
+        }
+
+        const unsubscribe = subscribeToInventory(refreshInventory)
+
+        return unsubscribe
+    }, [setRawInventoryData])
+
+    useEffect(() => {
+        if (!selectedItem) return
+
+        const refreshedSelectedItem =
+            inventoryData.find((item) => String(item.id) === String(selectedItem.id)) || null
+
+        if (!refreshedSelectedItem) {
+            setSelectedItem(null)
+            return
+        }
+
+        if (refreshedSelectedItem !== selectedItem) {
+            setSelectedItem(refreshedSelectedItem)
+        }
+    }, [inventoryData, selectedItem])
 
     function handleClearFilters() {
         setSearchTerm("")

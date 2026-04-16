@@ -2,368 +2,20 @@ import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
 import { formatAuditTimestamp, formatDate } from "../utils/dateUtils"
-import { getAllRequests } from "../services/requestService"
-import { getAllManifests } from "../services/manifestService"
-import { getAllTransfers } from "../services/transferService"
-import { findInventoryItemById } from "../services/inventoryService"
+import { getAllRequests, subscribeToRequests } from "../services/requestService"
+import { getAllManifests, subscribeToManifests } from "../services/manifestService"
+import { getAllTransfers, subscribeToTransfers } from "../services/transferService"
+import {
+    buildShipmentTrackingRecords,
+    getWorkflowTypeLabel,
+    getShipmentStatusLabel,
+    getShipmentStatusClass,
+    getPriorityBadgeClass,
+    getTransferTypeLabel,
+    resolveTransferStatusValue,
+} from "../services/shipmentTrackingService"
 import { useAsyncData } from "../hooks/useAsyncData"
 import FilterHeader from "./FilterHeader"
-
-function getWorkflowTypeLabel(workflowType) {
-    if (workflowType === "request") return "Request Workflow"
-    if (workflowType === "manual_manifest") return "Manual Manifest"
-    return ""
-}
-
-function getShipmentStatusLabel(statusValue) {
-    switch (statusValue) {
-        case "pending_approval":
-            return "Pending"
-        case "approved":
-            return "Approved"
-        case "rejected":
-            return "Rejected"
-        case "manifested":
-            return "Manifested"
-        case "in_transit":
-            return "In Transit"
-        case "completed":
-            return "Completed"
-        case "exception":
-            return "Exception"
-        default:
-            return ""
-    }
-}
-
-function getShipmentStatusClass(statusValue) {
-    switch (statusValue) {
-        case "pending_approval":
-        case "manifested":
-            return "status-badge reserved"
-        case "rejected":
-        case "exception":
-            return "status-badge out-of-stock"
-        case "in_transit":
-            return "status-badge in-transit"
-        case "approved":
-        case "completed":
-            return "status-badge available"
-        default:
-            return "status-badge"
-    }
-}
-
-function getPriorityBadgeClass(priorityValue) {
-    switch (priorityValue) {
-        case "urgent":
-            return "status-badge out-of-stock"
-        case "high":
-            return "status-badge low-stock"
-        case "normal":
-            return "status-badge reserved"
-        case "low":
-            return "status-badge available"
-        default:
-            return "status-badge"
-    }
-}
-
-function getTransferTypeLabel(typeValue) {
-    switch(typeValue) {
-        case "outbound":
-            return "Outbound to Job Site"
-        case "return":
-            return "Return to Warehouse"
-        case "warehouse_transfer":
-            return "Warehouse to Warehouse"
-        default:
-            return ""
-    }
-}
-
-async function buildRequestItemsWithCost(request) {
-    if (!request) return []
-
-    return Promise.all(request.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
-        const requestedQuantity = Number(item.requestedQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
-        const lineTotalCost = requestedQuantity * unitCost
-
-        return {
-            ...item,
-            name: inventoryItem?.name || `Inventory Item ${item.inventoryItemId}`,
-            sku: inventoryItem?.sku || "",
-            unit: inventoryItem?.unit || "",
-            category: inventoryItem?.category || "",
-            unitCost,
-            lineTotalCost,
-        }
-    }))
-}
-
-async function buildManifestItemsWithCost(manifest) {
-    if (!manifest) return []
-
-    return Promise.all(manifest.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
-        const manifestQuantity = Number(item.manifestQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
-        const lineTotalCost = manifestQuantity * unitCost
-
-        return {
-            ...item,
-            unitCost,
-            lineTotalCost,
-        }
-    }))
-}
-
-async function buildTransferItemsWithCost(transfer) {
-    if (!transfer) return []
-
-    return Promise.all(transfer.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
-        const receivedQuantity = 
-            item.receivedQuantity === null || item.receivedQuantity === undefined || item.receivedQuantity === ""
-                ? null
-                : Number(item.receivedQuantity)
-
-        const shippedQuantity = 
-            item.shippedQuantity === null || item.shippedQuantity === undefined || item.shippedQuantity === ""
-                ? null
-                : Number(item.shippedQuantity)
-        
-        const manifestQuantity = Number(item.manifestQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
-
-        const effectiveQuantity = 
-            receivedQuantity !== null
-                ? receivedQuantity
-                : shippedQuantity !== null
-                    ? shippedQuantity
-                    : manifestQuantity
-
-        const lineTotalCost = effectiveQuantity * unitCost
-        
-        return {
-            ...item,
-            unitCost,
-            effectiveQuantity,
-            lineTotalCost,
-        }
-    }))
-}
-
-async function buildShipmentTrackingRecords(requests, manifests, transfers) {
-    const records = []
-
-    const manifestsByRequestId = new Map()
-    manifests.forEach((manifest) => {
-        if (manifest.requestId) {
-            manifestsByRequestId.set(manifest.requestId, manifest)
-        }
-    })
-
-    const transfersByManifestId = new Map()
-    transfers.forEach((transfer) => {
-        if (transfer.manifestId) {
-            transfersByManifestId.set(transfer.manifestId, transfer)
-        }
-    })
-
-    for (const request of requests) {
-        const manifest = manifestsByRequestId.get(request.id) || null
-        const transfer = manifest ? transfersByManifestId.get(manifest.id) || null : null
-
-        let currentStatusValue = request.statusValue || request.status || "pending_approval"
-        let lastUpdatedAt = request.rejectedAt || request.approvedAt || request.createdAt || null
-
-        if (manifest && !transfer) {
-            currentStatusValue = "manifested"
-            lastUpdatedAt = manifest.finalizedAt || manifest.createdAt || lastUpdatedAt
-        }
-
-        if (transfer) {
-            const transferStatus = transfer.statusValue || transfer.status || "in_transit"
-            const completionOutcome = transfer.completionOutcomeValue || ""
-
-            if (transferStatus === "completed" && completionOutcome === "exception") {
-                currentStatusValue = "exception"
-            } else {
-                currentStatusValue = transferStatus
-            }
-
-            lastUpdatedAt =
-                transfer.receivedAt ||
-                transfer.shippedAt ||
-                transfer.createdAt ||
-                lastUpdatedAt
-        }
-
-        const requestItems = await buildRequestItemsWithCost(request)
-        const manifestItems = manifest ? await buildManifestItemsWithCost(manifest) : []
-        const transferItems = transfer ? await buildTransferItemsWithCost(transfer) : []
-
-        const activeCostItems = transfer
-            ? transferItems
-            : manifest
-                ? manifestItems
-                : requestItems
-
-        const totalCost = activeCostItems.reduce(
-            (sum, item) => sum + Number(item.lineTotalCost || 0),
-            0
-        )
-
-        records.push({
-            trackingId: `REQ-${request.id}`,
-            workflowType: "request",
-
-            requestId: request.id,
-            manifestId: manifest?.id || "",
-            transferId: transfer?.id || "",
-
-            title: request.project || request.location || request.id,
-            subtitle: request.location || "",
-
-            project: request.project || "",
-            location: request.location || "",
-
-            requestStatusValue: request.statusValue || request.status || "",
-            currentStatusValue,
-            currentStatusLabel: getShipmentStatusLabel(currentStatusValue),
-
-            priorityValue: request.priorityValue || "",
-            priority: request.priority || "",
-
-            requestedBy: request.requestedBy || "",
-            approvedBy: request.approvedBy || "",
-            approvedAt: request.approvedAt || null,
-
-            createdAt: request.createdAt || null,
-            rejectedAt: request.rejectedAt || null,
-            lastUpdatedAt,
-
-            neededByDate: request.neededByDate || "",
-
-            sourceWarehouse: request.sourceWarehouse || "",
-            sourceWarehouseValue: request.sourceWarehouseValue || "",
-            deliveryLocationText: request.deliveryLocationText || "",
-
-            sourceLocation: manifest?.sourceLocation || transfer?.sourceLocation || request.sourceLocation || "",
-            destinationLocation: manifest?.destinationLocation || transfer?.destinationLocation || request.location || "",
-            destinationDetail: manifest?.destinationDetail || transfer?.destinationDetail || request.deliveryLocationText || "",
-
-
-            itemCount: request.items.length,
-            requestItems,
-            manifestItems,
-            transferItems,
-
-            request,
-            manifest,
-            transfer,
-
-            totalCost,
-        })
-    }
-
-    for (const manifest of manifests.filter((manifest) => !manifest.requestId)) {
-            const transfer = transfersByManifestId.get(manifest.id) || null
-
-            let currentStatusValue = "manifested"
-            let lastUpdatedAt = manifest.finalizedAt || manifest.createdAt || null
-
-            if (transfer) {
-                const transferStatus = transfer.statusValue || transfer.status || "in_transit"
-                const completionOutcome = transfer.completionOutcomeValue || ""
-
-                if (transferStatus === "completed" && completionOutcome === "exception") {
-                    currentStatusValue = "exception"
-                } else {
-                    currentStatusValue = transferStatus
-                }
-
-                lastUpdatedAt =
-                    transfer.receivedAt ||
-                    transfer.shippedAt ||
-                    transfer.createdAt ||
-                    lastUpdatedAt
-            }
-
-            const manifestItems = await buildManifestItemsWithCost(manifest)
-            const transferItems = transfer ? await buildTransferItemsWithCost(transfer) : []
-
-            const activeCostItems = transfer ? transferItems : manifestItems
-
-            const totalCost = activeCostItems.reduce(
-                (sum, item) => sum + Number(item.lineTotalCost || 0),
-                0
-            )
-
-            records.push({
-                trackingId: `MAN-${manifest.id}`,
-                workflowType: "manual_manifest",
-
-                requestId: "",
-                manifestId: manifest?.id,
-                transferId: transfer?.id || "",
-
-                title: getTransferTypeLabel(manifest.manifestTypeValue || manifest.manifestType) || manifest.id,
-                subtitle: 
-                    [manifest.sourceLocation, manifest.destinationLocation]
-                    .filter(Boolean)
-                    .join(" → ") || manifest.id,
-
-                project: manifest.project || "",
-                location: manifest.location || "",
-
-                requestStatusValue: "",
-                currentStatusValue,
-                currentStatusLabel: getShipmentStatusLabel(currentStatusValue),
-
-                priorityValue: "",
-                priority: "",
-
-                requestedBy: "",
-                approvedBy: "",
-                approvedAt: null,
-
-                createdAt: manifest.createdAt || null,
-                rejectedAt: null,
-                lastUpdatedAt,
-
-                neededByDate: "",
-
-                sourceWarehouse: "",
-                sourceWarehouseValue: "",
-                deliveryLocationText: "",
-
-                sourceLocation: manifest.sourceLocation || transfer?.sourceLocation || "",
-                destinationLocation: manifest.destinationLocation || transfer?.destinationLocation || "",
-                destinationDetail: manifest.destinationDetail || transfer?.destinationDetail || "",
-
-
-                itemCount: manifest.items.length,
-                requestItems: [],
-                manifestItems,
-                transferItems,
-
-                request: null,
-                manifest,
-                transfer,
-
-                totalCost,
-            })
-    }
-
-    return records
-}
 
 function ShipmentTrackingDetailContent({
     record,
@@ -532,10 +184,9 @@ function ShipmentTrackingDetailContent({
                                 <span className="detail-label">Request Status: </span>
                                 <span className="detail-value">
                                     {getShipmentStatusLabel(
-                                        record.transfer.statusValue === "completed" &&
-                                        record.transfer.completionOutcomeValue === "exception"
-                                            ? "exception"
-                                            : record.transfer.statusValue || record.transfer.status
+                                        record.transfer
+                                            ? resolveTransferStatusValue(record.transfer)
+                                            : record.requestStatusValue
                                     )}
                                 </span>
                             </div>
@@ -597,12 +248,7 @@ function ShipmentTrackingDetailContent({
                             <div>
                                 <span className="detail-label">Transfer Status: </span>
                                 <span className="detail-value">
-                                    {getShipmentStatusLabel(
-                                        record.transfer.statusValue === "completed" &&
-                                        record.transfer.completionOutcomeValue === "exception"
-                                            ? "exception"
-                                            : record.transfer.statusValue || record.transfer.status
-                                    )}
+                                    {getShipmentStatusLabel(resolveTransferStatusValue(record.transfer))}
                                 </span>
                             </div>
 
@@ -832,6 +478,8 @@ function ShipmentTrackingPage({ onBack, permissions = [] }) {
 
     const [selectedRecord, setSelectedRecord] = useState(null)
 
+    const [trackingVersion, setTrackingVersion] = useState(0)
+
     const canViewMaterialCost = hasPermission(permissions, "view_material_cost")
 
     const { data: trackingData, loading, error } = useAsyncData(async () => {
@@ -841,7 +489,7 @@ function ShipmentTrackingPage({ onBack, permissions = [] }) {
             getAllTransfers(),
         ])
         return buildShipmentTrackingRecords(requests, manifests, transfers)
-    })
+    }, [trackingVersion])
 
     useEffect(() => {
         function handleResize() {
@@ -851,6 +499,40 @@ function ShipmentTrackingPage({ onBack, permissions = [] }) {
         window.addEventListener("resize", handleResize)
         return () => window.removeEventListener("resize", handleResize)
     }, [])
+
+    useEffect(() => {
+        function refreshTrackingData() {
+            setTrackingVersion((prev) => prev + 1)
+        }
+
+        const unsubscribeRequests = subscribeToRequests(refreshTrackingData)
+        const unsubscribeManifests = subscribeToManifests(refreshTrackingData)
+        const unsubscribeTransfers = subscribeToTransfers(refreshTrackingData)
+
+        return () => {
+            unsubscribeRequests()
+            unsubscribeManifests()
+            unsubscribeTransfers()
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!selectedRecord) return
+
+        const refreshedRecord =
+            trackingData.find(
+                (record) => String(record.trackingId) === String(selectedRecord.trackingId)
+            ) || null
+
+        if (!refreshedRecord) {
+            setSelectedRecord(null)
+            return
+        }
+
+        if (refreshedRecord !== selectedRecord) {
+            setSelectedRecord(refreshedRecord)
+        }
+    }, [trackingData, selectedRecord])
 
     const filterOptions = useMemo(() => {
         return {

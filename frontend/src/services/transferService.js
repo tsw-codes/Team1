@@ -1,6 +1,6 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel, camelToSnake } from '../utils/caseUtils'
-import { mockTransfers, getTransferById } from "../data/mockTransfers"
+import { mockTransfers } from "../data/mockTransfers"
 
 const transferPermissionMap = {
     outbound: "transfer_to_job_site",
@@ -10,28 +10,43 @@ const transferPermissionMap = {
 
 const ACTIVE_STATUSES = ["ready_to_ship", "in_transit"]
 
+let transferListeners = []
+
+export function subscribeToTransfers(listener) {
+    transferListeners.push(listener)
+
+    return () => {
+        transferListeners = transferListeners.filter((l) => l !== listener)
+    }
+}
+
+function notifyTransferChange() {
+    transferListeners.forEach((listener) => listener())
+}
+
 // --- Mock-only helpers ---
 
 function getTransferPrefix(transferType) {
-  if (transferType === "outbound") return "TO"
-  if (transferType === "return") return "TR"
-  if (transferType === "warehouse_transfer") return "TW"
-  return "T"
+    if (transferType === "outbound") return "TO"
+    if (transferType === "return") return "TR"
+    if (transferType === "warehouse_transfer") return "TW"
+    return "T"
 }
 
 function generateTransferId(transferType) {
-  const prefix = getTransferPrefix(transferType)
+    const prefix = getTransferPrefix(transferType)
 
-  const matchingIds = mockTransfers
-    .filter((transfer) => transfer.id.startsWith(`${prefix}-`))
-    .map((transfer) => {
-      const numericPart = Number(transfer.id.split("-")[1])
-      return Number.isNaN(numericPart) ? 0 : numericPart
-    })
+    const matchingIds = mockTransfers
+        .filter((transfer) => transfer.id.startsWith(`${prefix}-`))
+        .map((transfer) => {
+            const numericPart = Number(transfer.id.split("-")[1])
+            return Number.isNaN(numericPart) ? 0 : numericPart
+        })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+    const nextNumber =
+        matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
-  return `${prefix}-${nextNumber}`
+    return `${prefix}-${nextNumber}`
 }
 
 /**
@@ -69,9 +84,10 @@ function mapTransferRows(data) {
   return rows.map(mapTransferRow)
 }
 
-/**
- * Returns all transfers.
- */
+/* =========================
+   READ FUNCTIONS
+========================= */
+
 export async function getAllTransfers() {
   if (USE_MOCK) return mockTransfers
 
@@ -84,11 +100,8 @@ export async function getAllTransfers() {
   return mapTransferRows(data)
 }
 
-/**
- * Finds a single transfer by ID.
- */
 export async function findTransferById(id) {
-  if (USE_MOCK) return getTransferById(id)
+  if (USE_MOCK) return mockTransfers.find((t) => t.id === id) || null
 
   const { data, error } = await supabase
     .from('transfers_view')
@@ -100,9 +113,6 @@ export async function findTransferById(id) {
   return mapTransferRows(data)?.[0] || null
 }
 
-/**
- * Returns active transfers (ready_to_ship or in_transit) the user has permission for.
- */
 export async function getTransfersForPermissions(permissions = []) {
   if (USE_MOCK) {
     return mockTransfers.filter((transfer) => {
@@ -129,6 +139,10 @@ export async function getTransfersForPermissions(permissions = []) {
   })
 }
 
+/* =========================
+   WRITE FUNCTIONS
+========================= */
+
 /**
  * Creates a new transfer with its line items.
  * Expects camelCase input matching the mock data shape.
@@ -149,6 +163,7 @@ export async function createTransfer(newTransfer) {
     }
 
     mockTransfers.unshift(transferWithId)
+    notifyTransferChange()
     return transferWithId
   }
 
@@ -198,7 +213,9 @@ export async function createTransfer(newTransfer) {
     if (itemsError) throw new Error(itemsError.message)
   }
 
-  return findTransferById(transfer.id)
+  const created = await findTransferById(transfer.id)
+  notifyTransferChange()
+  return created
 }
 
 /**
@@ -214,6 +231,7 @@ export async function updateTransfer(id, updates) {
       ...updates,
     }
 
+    notifyTransferChange()
     return mockTransfers[index]
   }
 
@@ -257,7 +275,9 @@ export async function updateTransfer(id, updates) {
 
   if (error) throw new Error(error.message)
 
-  return findTransferById(id)
+  const result = await findTransferById(id)
+  notifyTransferChange()
+  return result
 }
 
 /**
@@ -269,6 +289,7 @@ export async function deleteTransfer(id) {
     if (index === -1) return null
 
     mockTransfers.splice(index, 1)
+    notifyTransferChange()
     return true
   }
 
@@ -278,5 +299,6 @@ export async function deleteTransfer(id) {
     .eq('id', id)
 
   if (error) throw new Error(error.message)
+  notifyTransferChange()
   return true
 }

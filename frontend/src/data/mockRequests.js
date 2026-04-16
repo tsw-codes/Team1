@@ -454,7 +454,3 @@ export const mockRequests = [
     ],
   },
 ]
-
-export function getRequestById(requestId) {
-  return mockRequests.find((request) => request.id === requestId) || null
-}
