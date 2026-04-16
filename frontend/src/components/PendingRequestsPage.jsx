@@ -15,7 +15,9 @@ import FilterHeader from "./FilterHeader"
 async function buildRequestItemsWithCost(request) {
     if (!request) return []
 
-    return Promise.all(request.items.map(async (item) => {
+    const items = Array.isArray(request.items) ? request.items : []
+
+    return Promise.all(items.map(async (item) => {
         const inventoryItem = await findInventoryItemById(item.inventoryItemId)
 
         const requestedQuantity = Number(item.requestedQuantity || 0)
@@ -314,6 +316,10 @@ function PendingRequestsPage({ onBack, currentUser }) {
     const [approvalError, setApprovalError] = useState("")
     const [formError, setFormError] = useState("")
 
+    function toSearchableText(value) {
+        return String(value ?? "").toLowerCase()
+    }
+
     function handleClearFilters() {
         setSearchTerm("")
         setProjectFilter("All")
@@ -437,7 +443,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
 
             return {
                 ...request,
-                itemCount: request.items.length,
+                itemCount: Array.isArray(request.items) ? request.items.length : 0,
                 totalCost,
             }
         }))
@@ -499,13 +505,18 @@ function PendingRequestsPage({ onBack, currentUser }) {
     const filteredRequests = useMemo(() => {
         return safeRequestSummaries.filter((request) => {
             const search = searchTerm.toLowerCase()
+            const requestId = toSearchableText(request.id)
+            const project = toSearchableText(request.project)
+            const location = toSearchableText(request.location)
+            const requestedBy = toSearchableText(request.requestedBy)
+            const sourceWarehouse = toSearchableText(request.sourceWarehouse)
 
             const matchesSearch = 
-                request.id.toLowerCase().includes(search) ||
-                request.project.toLowerCase().includes(search) ||
-                request.location.toLowerCase().includes(search) ||
-                request.requestedBy.toLowerCase().includes(search) ||
-                request.sourceWarehouse.toLowerCase().includes(search)
+                requestId.includes(search) ||
+                project.includes(search) ||
+                location.includes(search) ||
+                requestedBy.includes(search) ||
+                sourceWarehouse.includes(search)
 
             const matchesProject = projectFilter === "All" || request.project === projectFilter
 
