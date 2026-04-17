@@ -76,6 +76,7 @@ function mapManifestRow(row) {
       name: inv.name || '',
       sku: inv.sku || '',
       unit: inv.unit || '',
+      unitCost: Number(inv.unit_cost || 0),
       manifestQuantity: item.manifest_quantity,
     }
   })
@@ -83,7 +84,7 @@ function mapManifestRow(row) {
   return converted
 }
 
-const MANIFEST_SELECT = '*, manifest_items (id, inventory_item_id, manifest_quantity, inventory_items (name, sku, unit))'
+const MANIFEST_SELECT = '*, manifest_items (id, inventory_item_id, manifest_quantity, inventory_items (name, sku, unit, unit_cost))'
 
 function mapManifestRows(data) {
   if (!data) return []

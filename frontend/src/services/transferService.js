@@ -66,6 +66,7 @@ function mapTransferRow(row) {
       name: inv.name || '',
       sku: inv.sku || '',
       unit: inv.unit || '',
+      unitCost: Number(inv.unit_cost || 0),
       manifestQuantity: item.manifest_quantity,
       shippedQuantity: item.shipped_quantity,
       receivedQuantity: item.received_quantity,
@@ -76,7 +77,7 @@ function mapTransferRow(row) {
   return converted
 }
 
-const TRANSFER_SELECT = '*, transfer_items (id, inventory_item_id, manifest_quantity, shipped_quantity, received_quantity, variance_reason, inventory_items (name, sku, unit))'
+const TRANSFER_SELECT = '*, transfer_items (id, inventory_item_id, manifest_quantity, shipped_quantity, received_quantity, variance_reason, inventory_items (name, sku, unit, unit_cost))'
 
 function mapTransferRows(data) {
   if (!data) return []

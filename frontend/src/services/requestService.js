@@ -2,7 +2,6 @@ import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel, camelToSnake } from '../utils/caseUtils'
 import { mockRequests } from "../data/mockRequests"
 import { createAuditTimestamp } from "../utils/dateUtils"
-import { findInventoryItemById } from "./inventoryService"
 
 let listeners = []
 
@@ -69,17 +68,28 @@ function normalizeRequest(record) {
   }
 }
 
-const REQUEST_SELECT = '*, request_items (id, inventory_item_id, requested_quantity)'
+const REQUEST_SELECT = '*, request_items (id, inventory_item_id, requested_quantity, inventory_items (name, sku, unit, unit_cost))'
 
 function mapRequestRows(data) {
   if (!data) return []
   const rows = Array.isArray(data) ? data : [data]
 
   return rows.map((row) => {
-    const items = row.request_items || []
+    const rawItems = row.request_items || []
     const { request_items, ...rest } = row
     const converted = snakeToCamel(rest)
-    converted.items = snakeToCamel(items)
+    converted.items = rawItems.map((item) => {
+      const inv = item.inventory_items || {}
+      return {
+        id: item.id,
+        inventoryItemId: item.inventory_item_id,
+        requestedQuantity: item.requested_quantity,
+        name: inv.name || '',
+        sku: inv.sku || '',
+        unit: inv.unit || '',
+        unitCost: Number(inv.unit_cost || 0),
+      }
+    })
     return converted
   })
 }
@@ -149,31 +159,22 @@ export function buildRequestPayload({
 }
 
 /**
- * Enriches a request's items with inventory metadata (name, sku, cost).
- * Async because findInventoryItemById may hit the database.
+ * Enriches a request's items with computed cost fields.
+ * Item name/sku/unit/unitCost are already loaded via the JOIN in REQUEST_SELECT.
  */
-export async function buildRequestItemsWithCost(request) {
+export function buildRequestItemsWithCost(request) {
   if (!request) return []
 
-  return Promise.all(
-    request.items.map(async (item) => {
-      const inventoryItem = await findInventoryItemById(item.inventoryItemId)
+  return request.items.map((item) => {
+    const requestedQuantity = Number(item.requestedQuantity || 0)
+    const unitCost = Number(item.unitCost || 0)
+    const lineTotalCost = requestedQuantity * unitCost
 
-      const requestedQuantity = Number(item.requestedQuantity || 0)
-      const unitCost = Number(inventoryItem?.unitCost || 0)
-      const lineTotalCost = requestedQuantity * unitCost
-
-      return {
-        ...item,
-        name: inventoryItem?.name || `Inventory Item ${item.inventoryItemId}`,
-        sku: inventoryItem?.sku || "",
-        unit: inventoryItem?.unit || "",
-        category: inventoryItem?.category || "",
-        unitCost,
-        lineTotalCost,
-      }
-    })
-  )
+    return {
+      ...item,
+      lineTotalCost,
+    }
+  })
 }
 
 /* =========================

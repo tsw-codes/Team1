@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { formatAuditTimestamp, formatDate } from "../utils/dateUtils"
 import { 
     getRequestsPendingApproval,
@@ -7,7 +7,6 @@ import {
     rejectRequest,
     buildRequestItemsWithCost,
 } from "../services/requestService"
-import { subscribeToInventory } from "../services/inventoryService"
 import { formatCurrency } from "../utils/formatters"
 import { useAsyncData } from "../hooks/useAsyncData"
 import Toast from "./Toast"
@@ -39,18 +38,9 @@ function PendingRequestDetailContent({
     showClose = false,
     requestRefs,
 }) {
-    const [requestItems, setRequestItems] = useState([])
-
-    useEffect(() => {
-        if (!request) return
-        let cancelled = false
-        buildRequestItemsWithCost(request).then((items) => {
-            if (!cancelled) setRequestItems(items)
-        })
-        return () => { cancelled = true }
-    }, [request])
-
     if(!request) return null
+
+    const requestItems = buildRequestItemsWithCost(request)
 
     const totalRequestCost = requestItems.reduce(
         (sum, item) => sum + Number(item.lineTotalCost || 0),
@@ -297,16 +287,6 @@ function PendingRequestsPage({ onBack, currentUser }) {
     const [approvalError, setApprovalError] = useState("")
     const [formError, setFormError] = useState("")
 
-    const [inventoryVersion, setInventoryVersion] = useState(0)
-
-    useEffect(() => {
-        const unsubscribe = subscribeToInventory(() => {
-            setInventoryVersion((v) => v + 1)
-        })
-
-        return unsubscribe
-    }, [])
-
     useEffect(() => {
         function handleResize() {
             setIsMobile(window.innerWidth <= 900)
@@ -442,10 +422,10 @@ function PendingRequestsPage({ onBack, currentUser }) {
         showToast(`Request ${selectedRequest.id} rejected.`, "error")
     }
 
-    const buildSummaries = useCallback(async () => {
+    const requestSummaries = useMemo(() => {
         const requests = pendingRequests ?? []
-        return Promise.all(requests.map(async (request) => {
-            const itemsWithCost = await buildRequestItemsWithCost(request)
+        return requests.map((request) => {
+            const itemsWithCost = buildRequestItemsWithCost(request)
             const totalCost = itemsWithCost.reduce(
                 (sum, item) => sum + Number(item.lineTotalCost || 0),
                 0
@@ -456,10 +436,8 @@ function PendingRequestsPage({ onBack, currentUser }) {
                 itemCount: request.items.length,
                 totalCost,
             }
-        }))
-    }, [pendingRequests, inventoryVersion])
-
-    const { data: requestSummaries, loading: summariesLoading } = useAsyncData(buildSummaries, [buildSummaries])
+        })
+    }, [pendingRequests])
 
     const safeRequestSummaries = useMemo(() => requestSummaries ?? [], [requestSummaries])
 
@@ -546,7 +524,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
 
     const { projects, priorities, requesters, warehouses } = filterOptions
 
-    if (pendingLoading || summariesLoading) return <div>Loading...</div>
+    if (pendingLoading) return <div>Loading...</div>
 
     return (
         <>

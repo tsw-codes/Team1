@@ -1,5 +1,3 @@
-import { findInventoryItemById } from "./inventoryService"
-
 export function getWorkflowTypeLabel(workflowType) {
     if (workflowType === "request") return "Request Workflow"
     if (workflowType === "manual_manifest") return "Manual Manifest"
@@ -78,55 +76,41 @@ export function resolveTransferStatusValue(transfer) {
     return transfer.statusValue || transfer.status || "in_transit"
 }
 
-export async function buildRequestItemsWithCost(request) {
+export function buildRequestItemsWithCost(request) {
     if (!request) return []
 
-    return Promise.all(request.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
+    return request.items.map((item) => {
         const requestedQuantity = Number(item.requestedQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
+        const unitCost = Number(item.unitCost || 0)
         const lineTotalCost = requestedQuantity * unitCost
 
         return {
             ...item,
-            name: inventoryItem?.name || `Inventory Item ${item.inventoryItemId}`,
-            sku: inventoryItem?.sku || "",
-            unit: inventoryItem?.unit || "",
-            category: inventoryItem?.category || "",
-            unitCost,
+            name: item.name || `Inventory Item ${item.inventoryItemId}`,
             lineTotalCost,
         }
-    }))
+    })
 }
 
-export async function buildManifestItemsWithCost(manifest) {
+export function buildManifestItemsWithCost(manifest) {
     if (!manifest) return []
 
-    return Promise.all(manifest.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
+    return manifest.items.map((item) => {
         const manifestQuantity = Number(item.manifestQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
+        const unitCost = Number(item.unitCost || 0)
         const lineTotalCost = manifestQuantity * unitCost
 
         return {
             ...item,
-            name: item.name || inventoryItem?.name || "",
-            sku: item.sku || inventoryItem?.sku || "",
-            unit: item.unit || inventoryItem?.unit || "",
-            unitCost,
             lineTotalCost,
         }
-    }))
+    })
 }
 
-export async function buildTransferItemsWithCost(transfer) {
+export function buildTransferItemsWithCost(transfer) {
     if (!transfer) return []
 
-    return Promise.all(transfer.items.map(async (item) => {
-        const inventoryItem = await findInventoryItemById(item.inventoryItemId)
-
+    return transfer.items.map((item) => {
         const receivedQuantity =
             item.receivedQuantity === null || item.receivedQuantity === undefined || item.receivedQuantity === ""
                 ? null
@@ -138,7 +122,7 @@ export async function buildTransferItemsWithCost(transfer) {
                 : Number(item.shippedQuantity)
 
         const manifestQuantity = Number(item.manifestQuantity || 0)
-        const unitCost = Number(inventoryItem?.unitCost || 0)
+        const unitCost = Number(item.unitCost || 0)
 
         const effectiveQuantity =
             receivedQuantity !== null
@@ -151,17 +135,13 @@ export async function buildTransferItemsWithCost(transfer) {
 
         return {
             ...item,
-            name: item.name || inventoryItem?.name || "",
-            sku: item.sku || inventoryItem?.sku || "",
-            unit: item.unit || inventoryItem?.unit || "",
-            unitCost,
             effectiveQuantity,
             lineTotalCost,
         }
-    }))
+    })
 }
 
-export async function buildShipmentTrackingRecords(requests, manifests, transfers) {
+export function buildShipmentTrackingRecords(requests, manifests, transfers) {
     const records = []
 
     const manifestsByRequestId = new Map()
@@ -199,9 +179,9 @@ export async function buildShipmentTrackingRecords(requests, manifests, transfer
                 lastUpdatedAt
         }
 
-        const requestItems = await buildRequestItemsWithCost(request)
-        const manifestItems = manifest ? await buildManifestItemsWithCost(manifest) : []
-        const transferItems = transfer ? await buildTransferItemsWithCost(transfer) : []
+        const requestItems = buildRequestItemsWithCost(request)
+        const manifestItems = manifest ? buildManifestItemsWithCost(manifest) : []
+        const transferItems = transfer ? buildTransferItemsWithCost(transfer) : []
 
         const activeCostItems = transfer
             ? transferItems
@@ -282,8 +262,8 @@ export async function buildShipmentTrackingRecords(requests, manifests, transfer
                     lastUpdatedAt
             }
 
-            const manifestItems = await buildManifestItemsWithCost(manifest)
-            const transferItems = transfer ? await buildTransferItemsWithCost(transfer) : []
+            const manifestItems = buildManifestItemsWithCost(manifest)
+            const transferItems = transfer ? buildTransferItemsWithCost(transfer) : []
 
             const activeCostItems = transfer ? transferItems : manifestItems
 
