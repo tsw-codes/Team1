@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createAuditTimestamp } from "../utils/dateUtils"
 import { 
     getLocationOptions,
@@ -54,20 +54,94 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
 
     const [poItems, setPoItems] = useState([createEmptyPoItem()])
 
-    const locationOptions = useMemo(() => {
-        return getLocationOptions()
+    const [locationOptions, setLocationOptions] = useState([])
+    const [projectOptions, setProjectOptions] = useState([])
+    const [selectedLocation, setSelectedLocation] = useState(null)
+    const [selectedProject, setSelectedProject] = useState(null)
+
+    useEffect(() => {
+        let isMounted = true
+
+        async function loadLocations() {
+            try {
+                const options = await getLocationOptions()
+                if (!isMounted) return
+                setLocationOptions(Array.isArray(options) ? options : [])
+            } catch (error) {
+                console.error("Failed to load locations:", error)
+                if (!isMounted) return
+                setLocationOptions([])
+            }
+        }
+
+        loadLocations()
+
+        return () => {
+            isMounted = false
+        }
     }, [])
 
-    const projectOptions = useMemo(() => {
-        return getProjectOptionsForLocation(poForm.locationValue)
+    useEffect(() => {
+        let isMounted = true
+
+        async function loadProjects() {
+            if (!poForm.locationValue) {
+                setProjectOptions([])
+                setSelectedLocation(null)
+                setSelectedProject(null)
+                return
+            }
+
+            try {
+                const [projects, location] = await Promise.all([
+                    getProjectOptionsForLocation(poForm.locationValue),
+                    getLocationByValue(poForm.locationValue),
+                ])
+
+                if (!isMounted) return
+
+                setProjectOptions(Array.isArray(projects) ? projects : [])
+                setSelectedLocation(location || null)
+            } catch (error) {
+                console.error("Failed to load projects/location:", error)
+                if (!isMounted) return
+                setProjectOptions([])
+                setSelectedLocation(null)
+            }
+        }
+
+        loadProjects()
+
+        return () => {
+            isMounted = false
+        }
     }, [poForm.locationValue])
 
-    const selectedLocation = useMemo(() => {
-        return getLocationByValue(poForm.locationValue)
-    }, [poForm.locationValue])
+    useEffect(() => {
+        let isMounted = true
 
-    const selectedProject = useMemo(() => {
-        return getProjectByValue(poForm.projectValue)
+        async function loadSelectedProject() {
+            if (!poForm.projectValue) {
+                setSelectedProject(null)
+                return
+            }
+
+            try {
+                const project = await getProjectByValue(poForm.projectValue)
+                if (!isMounted) return
+                setSelectedProject(project || null)
+            } catch (error) {
+                console.error("Failed to load selected project:", error)
+                if (!isMounted) return
+                setSelectedProject(null)
+            }
+        }
+
+        loadSelectedProject()
+
+        return () => {
+            isMounted = false
+        }
     }, [poForm.projectValue])
 
     function showToast(message, type = "success") {
