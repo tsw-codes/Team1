@@ -158,8 +158,6 @@ export async function createTransfer(newTransfer) {
       transferType: newTransfer.transferType || transferTypeValue,
       statusValue: newTransfer.statusValue || "in_transit",
       status: newTransfer.status || "In Transit",
-      completionOutcomeValue: newTransfer.completionOutcomeValue ?? null,
-      completionOutcome: newTransfer.completionOutcome ?? null,
     }
 
     mockTransfers.unshift(transferWithId)
@@ -177,7 +175,6 @@ export async function createTransfer(newTransfer) {
   delete snakeFields.project
   delete snakeFields.source_location
   delete snakeFields.destination_location
-  delete snakeFields.completion_outcome
 
   // Generate ID from DB function
   const { data: generatedId, error: idError } = await supabase
@@ -245,8 +242,6 @@ export async function updateTransfer(id, updates) {
   delete snakeUpdates.project
   delete snakeUpdates.source_location
   delete snakeUpdates.destination_location
-  delete snakeUpdates.completion_outcome
-  delete snakeUpdates.completion_outcome_value
 
   // Update transfer items FIRST (before status change) so DB triggers
   // read the correct received quantities when auto-adjusting inventory

@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { createAuditTimestamp } from "../utils/dateUtils"
-import { 
+import {
     getLocationOptions,
     getProjectOptionsForLocation,
     getLocationByValue,
     getProjectByValue,
 } from "../services/projectService"
+import { useAsyncData } from "../hooks/useAsyncData"
 import InfoHeader from "./InfoHeader"
 import Toast from "./Toast"
 import { buildPurchaseOrderPayload, createPurchaseOrder } from "../services/purchaseOrderService"
@@ -54,95 +55,21 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
 
     const [poItems, setPoItems] = useState([createEmptyPoItem()])
 
-    const [locationOptions, setLocationOptions] = useState([])
-    const [projectOptions, setProjectOptions] = useState([])
-    const [selectedLocation, setSelectedLocation] = useState(null)
-    const [selectedProject, setSelectedProject] = useState(null)
+    const { data: locationOptions } = useAsyncData(
+        () => getLocationOptions(), []
+    )
 
-    useEffect(() => {
-        let isMounted = true
+    const { data: projectOptions } = useAsyncData(
+        () => getProjectOptionsForLocation(poForm.locationValue), [poForm.locationValue]
+    )
 
-        async function loadLocations() {
-            try {
-                const options = await getLocationOptions()
-                if (!isMounted) return
-                setLocationOptions(Array.isArray(options) ? options : [])
-            } catch (error) {
-                console.error("Failed to load locations:", error)
-                if (!isMounted) return
-                setLocationOptions([])
-            }
-        }
+    const { data: selectedLocation } = useAsyncData(
+        () => getLocationByValue(poForm.locationValue), [poForm.locationValue]
+    )
 
-        loadLocations()
-
-        return () => {
-            isMounted = false
-        }
-    }, [])
-
-    useEffect(() => {
-        let isMounted = true
-
-        async function loadProjects() {
-            if (!poForm.locationValue) {
-                setProjectOptions([])
-                setSelectedLocation(null)
-                setSelectedProject(null)
-                return
-            }
-
-            try {
-                const [projects, location] = await Promise.all([
-                    getProjectOptionsForLocation(poForm.locationValue),
-                    getLocationByValue(poForm.locationValue),
-                ])
-
-                if (!isMounted) return
-
-                setProjectOptions(Array.isArray(projects) ? projects : [])
-                setSelectedLocation(location || null)
-            } catch (error) {
-                console.error("Failed to load projects/location:", error)
-                if (!isMounted) return
-                setProjectOptions([])
-                setSelectedLocation(null)
-            }
-        }
-
-        loadProjects()
-
-        return () => {
-            isMounted = false
-        }
-    }, [poForm.locationValue])
-
-    useEffect(() => {
-        let isMounted = true
-
-        async function loadSelectedProject() {
-            if (!poForm.projectValue) {
-                setSelectedProject(null)
-                return
-            }
-
-            try {
-                const project = await getProjectByValue(poForm.projectValue)
-                if (!isMounted) return
-                setSelectedProject(project || null)
-            } catch (error) {
-                console.error("Failed to load selected project:", error)
-                if (!isMounted) return
-                setSelectedProject(null)
-            }
-        }
-
-        loadSelectedProject()
-
-        return () => {
-            isMounted = false
-        }
-    }, [poForm.projectValue])
+    const { data: selectedProject } = useAsyncData(
+        () => getProjectByValue(poForm.projectValue), [poForm.projectValue]
+    )
 
     function showToast(message, type = "success") {
         setToast({ message, type })
@@ -606,7 +533,7 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
                                         onChange={handlePoChange}
                                     >
                                         <option value="">Select Location</option>
-                                        {locationOptions.map((location) => (
+                                        {(locationOptions ?? []).map((location) => (
                                             <option key={location.value} value={location.value}>
                                                 {location.label}
                                             </option>
@@ -630,7 +557,7 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
                                         <option value="">
                                             {poForm.locationValue ? "Select project": "Select location first"}
                                         </option>
-                                        {projectOptions.map((project) => (
+                                        {(projectOptions ?? []).map((project) => (
                                             <option key={project.value} value={project.value}>
                                                 {project.label}
                                             </option>

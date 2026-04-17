@@ -16,6 +16,7 @@ import TransferInventoryPage from './components/TransferInventoryPage'
 import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
 import EnterPurchaseOrderPage from './components/EnterPurchaseOrderPage'
+import NotFoundPage from './components/NotFoundPage'
 
 import { getPermissionsForRole } from './auth/permissions'
 import { authenticateUser, updateUserPassword, signOut, getCurrentSession, onAuthStateChange } from './services/authService'
@@ -124,6 +125,15 @@ function App() {
 
   async function handleLogin(e) {
     e.preventDefault()
+
+    if (!loginForm.username.trim()) {
+      setLoginError('Username is required.')
+      return
+    }
+    if (!loginForm.password) {
+      setLoginError('Password is required.')
+      return
+    }
 
     try {
       const validUser = await authenticateUser(loginForm.username, loginForm.password)
@@ -517,7 +527,14 @@ function App() {
                   }
                 />
 
-                <Route path="*" element={<Navigate to='/login' replace />} />
+                <Route
+                  path="*"
+                  element={
+                    <PageTransition direction={navDirection}>
+                      <NotFoundPage />
+                    </PageTransition>
+                  }
+                />
               </Routes>
             </AnimatePresence>
           </section>

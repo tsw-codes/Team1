@@ -1,6 +1,7 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel, camelToSnake } from '../utils/caseUtils'
 import { mockManifests } from "../data/mockManifests"
+import { mockTransfers } from "../data/mockTransfers"
 import { createAuditTimestamp } from "../utils/dateUtils"
 import {
   getSiteLocationOptions,
@@ -157,21 +158,41 @@ export async function getAllowedDestinationLocations(manifestMode) {
 
 export async function getAvailableManifestsForTransfer(permissions = []) {
   if (USE_MOCK) {
+    const shippedManifestIds = new Set(
+      (mockTransfers || [])
+        .map((transfer) => transfer.manifestId)
+        .filter(Boolean)
+    )
     return mockManifests.filter((manifest) => {
       if ((manifest.statusValue || manifest.status) !== "finalized") return false
+      if (shippedManifestIds.has(manifest.id)) return false
       const requiredPermission = transferPermissionMap[manifest.manifestType]
       return requiredPermission ? permissions.includes(requiredPermission) : false
     })
   }
 
-  const { data, error } = await supabase
-    .from('manifests_view')
-    .select(MANIFEST_SELECT)
-    .eq('status_value', 'finalized')
-    .order('created_at', { ascending: false })
+  const [manifestRes, transferRes] = await Promise.all([
+    supabase
+      .from('manifests_view')
+      .select(MANIFEST_SELECT)
+      .eq('status_value', 'finalized')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('transfers')
+      .select('manifest_id')
+      .not('manifest_id', 'is', null),
+  ])
 
-  if (error) throw new Error(error.message)
-  const results = mapManifestRows(data)
+  if (manifestRes.error) throw new Error(manifestRes.error.message)
+  if (transferRes.error) throw new Error(transferRes.error.message)
+
+  const shippedManifestIds = new Set(
+    (transferRes.data || []).map((row) => row.manifest_id)
+  )
+
+  const results = mapManifestRows(manifestRes.data).filter(
+    (manifest) => !shippedManifestIds.has(manifest.id)
+  )
 
   return results.filter((manifest) => {
     const requiredPermission = transferPermissionMap[manifest.manifestType]
@@ -202,19 +223,19 @@ export function buildManifestPayload({
     statusValue: "finalized",
     status: "Finalized",
 
-    requestId: manifestForm.requestId,
-    requestedBy: manifestForm.requestedBy,
-    approvedBy: manifestForm.approvedBy,
-    approvedAt: manifestForm.approvedAt,
+    requestId: manifestForm.requestId || null,
+    requestedBy: manifestForm.requestedBy || null,
+    approvedBy: manifestForm.approvedBy || null,
+    approvedAt: manifestForm.approvedAt || null,
 
     createdBy: manifestForm.createdBy,
     createdAt: manifestForm.createdAt,
 
     manifestDate: manifestForm.manifestDate,
 
-    locationValue: manifestForm.locationValue,
+    locationValue: manifestForm.locationValue || null,
     location: manifestForm.location,
-    projectValue: manifestForm.projectValue,
+    projectValue: manifestForm.projectValue || null,
     project: manifestForm.project,
 
     finalizedBy,

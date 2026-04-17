@@ -75,15 +75,7 @@ export function getTransferTypeLabel(typeValue) {
 
 export function resolveTransferStatusValue(transfer) {
     if (!transfer) return ""
-
-    const transferStatus = transfer.statusValue || transfer.status || "in_transit"
-    const completionOutcome = transfer.completionOutcomeValue || ""
-
-    if (transferStatus === "completed" && completionOutcome === "exception") {
-        return "exception"
-    }
-
-    return transferStatus
+    return transfer.statusValue || transfer.status || "in_transit"
 }
 
 export async function buildRequestItemsWithCost(request) {
