@@ -412,7 +412,12 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         const isValid = validateShipment()
         if (!isValid) return
 
-        const newTransfer = {
+        const transferTypeValue = activeRecord.manifestTypeValue || activeRecord.manifestType
+
+        // Step 1: create transfer in ready_to_ship state with no shipped/received quantities.
+        // The auto-adjust DB trigger fires on UPDATE only, so inserting directly as
+        // in_transit would silently skip source-inventory deduction.
+        const createdTransfer = await createTransfer({
             manifestId: activeRecord.id,
 
             requestId: activeRecord.requestId || "",
@@ -420,19 +425,19 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             approvedBy: activeRecord.approvedBy || "",
             approvedAt: activeRecord.approvedAt || null,
 
-            transferTypeValue: activeRecord.manifestTypeValue || activeRecord.manifestType,
-            transferType: activeRecord.manifestType || activeRecord.manifestTypeValue,
+            transferTypeValue,
+            transferType: activeRecord.manifestType || transferTypeValue,
 
-            statusValue: "in_transit",
-            status: "In Transit",
+            statusValue: "ready_to_ship",
+            status: "Ready to Ship",
 
             createdBy: activeRecord.finalizedBy || activeRecord.createdBy || "unknown",
             createdAt: createAuditTimestamp(),
             manifestDate: activeRecord.manifestDate,
 
-            shippedDate: activeRecord.shippedDate,
-            shippedAt: createAuditTimestamp(),
-            shippedBy: currentUser?.username || "unknown",
+            shippedDate: null,
+            shippedAt: null,
+            shippedBy: null,
 
             receivedDate: null,
             receivedAt: null,
@@ -456,24 +461,37 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             items: activeRecord.items.map((item) => ({
                 ...item,
                 manifestQuantity: Number(item.manifestQuantity || 0),
-                shippedQuantity: Number(item.manifestQuantity || 0),
-                receivedQuantity: Number(item.manifestQuantity || 0),
+                shippedQuantity: null,
+                receivedQuantity: null,
                 varianceReason: "",
             })),
-        }
+        })
 
-        const createdTransfer = await createTransfer(newTransfer)
-        await applyTransferShipmentToInventory(createdTransfer)
+        // Step 2: transition ready_to_ship → in_transit with shipped_quantity set per item.
+        // This UPDATE fires auto_adjust_inventory_on_transfer, which deducts source inventory.
+        const shippedTransfer = await updateTransfer(createdTransfer.id, {
+            statusValue: "in_transit",
+            status: "In Transit",
+            shippedDate: activeRecord.shippedDate,
+            shippedAt: createAuditTimestamp(),
+            shippedBy: currentUser?.username || "unknown",
+            items: createdTransfer.items.map((item) => ({
+                id: item.id,
+                shippedQuantity: Number(item.manifestQuantity || 0),
+            })),
+        })
 
-        setSelectedWorkItem(`transfer:${createdTransfer.id}`)
-        setActiveRecord(createdTransfer)
+        await applyTransferShipmentToInventory(shippedTransfer)
+
+        setSelectedWorkItem(`transfer:${shippedTransfer.id}`)
+        setActiveRecord(shippedTransfer)
         setActiveRecordType("transfer")
         setTransferErrors({})
         setItemErrors({})
         setFormError("")
 
         refetchTransfers()
-        showToast(`Transfer shipment ${createdTransfer.id} created.`)
+        showToast(`Transfer shipment ${shippedTransfer.id} created.`)
     }
 
     async function handleConfirmReceipt(e) {

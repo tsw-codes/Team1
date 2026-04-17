@@ -316,6 +316,9 @@ DECLARE
   v_new_status TEXT;
   v_source_loc TEXT;
   v_dest_loc TEXT;
+  v_dest_loc_label TEXT;
+  v_dest_item_id INTEGER;
+  v_src_row RECORD;
 BEGIN
   IF OLD.status_value = NEW.status_value THEN
     RETURN NEW;
@@ -357,9 +360,14 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- RECEIVED: increase destination location quantities
+  -- RECEIVED: increase destination location quantities.
+  -- transfer_items.inventory_item_id points at the SOURCE row (the one we shipped from),
+  -- so we must resolve the destination's own row for that SKU. If the destination has
+  -- no row for this SKU yet (first-ever delivery), create one.
   IF NEW.status_value IN ('completed', 'exception') THEN
     v_dest_loc := NEW.destination_location_value;
+
+    SELECT label INTO v_dest_loc_label FROM locations WHERE value = v_dest_loc;
 
     FOR v_item IN
       SELECT ti.inventory_item_id, ti.received_quantity
@@ -368,27 +376,65 @@ BEGIN
         AND ti.received_quantity IS NOT NULL
         AND ti.received_quantity > 0
     LOOP
-      SELECT quantity INTO v_prev_qty
+      -- Copy metadata from the source row (sku, name, unit, category, unit_cost).
+      SELECT name, sku, unit, category, unit_cost
+      INTO v_src_row
       FROM inventory_items
-      WHERE id = v_item.inventory_item_id
+      WHERE id = v_item.inventory_item_id;
+
+      -- Find the destination's own row for this SKU (or null if it doesn't exist yet).
+      SELECT id, quantity INTO v_dest_item_id, v_prev_qty
+      FROM inventory_items
+      WHERE sku = v_src_row.sku
+        AND location_value = v_dest_loc
+      LIMIT 1
       FOR UPDATE;
 
       v_change := v_item.received_quantity;
-      v_new_qty := v_prev_qty + v_change;
 
-      v_new_status := CASE
-        WHEN v_new_qty <= 0  THEN 'Out of Stock'
-        WHEN v_new_qty <= 10 THEN 'Low Stock'
-        ELSE 'Available'
-      END;
+      IF v_dest_item_id IS NULL THEN
+        -- First delivery of this SKU to this destination — create the row.
+        v_prev_qty := 0;
+        v_new_qty  := v_change;
+        v_new_status := CASE
+          WHEN v_new_qty <= 0  THEN 'Out of Stock'
+          WHEN v_new_qty <= 10 THEN 'Low Stock'
+          ELSE 'Available'
+        END;
 
-      UPDATE inventory_items
-      SET quantity = v_new_qty, status = v_new_status
-      WHERE id = v_item.inventory_item_id;
+        INSERT INTO inventory_items (
+          name, sku, quantity, unit, project,
+          location_value, location_detail, status, category, unit_cost
+        ) VALUES (
+          v_src_row.name,
+          v_src_row.sku,
+          v_new_qty,
+          v_src_row.unit,
+          COALESCE(v_dest_loc_label, v_dest_loc),
+          v_dest_loc,
+          COALESCE(v_dest_loc_label, v_dest_loc),
+          v_new_status,
+          v_src_row.category,
+          v_src_row.unit_cost
+        )
+        RETURNING id INTO v_dest_item_id;
+      ELSE
+        -- Destination already has a row for this SKU — increment it.
+        v_new_qty := v_prev_qty + v_change;
+        v_new_status := CASE
+          WHEN v_new_qty <= 0  THEN 'Out of Stock'
+          WHEN v_new_qty <= 10 THEN 'Low Stock'
+          ELSE 'Available'
+        END;
+
+        UPDATE inventory_items
+        SET quantity = v_new_qty, status = v_new_status
+        WHERE id = v_dest_item_id;
+      END IF;
 
       v_adj_id := generate_adjustment_id();
       INSERT INTO inventory_adjustments (id, inventory_item_id, adjustment_type, quantity_change, previous_quantity, new_quantity, reason, adjusted_by)
-      VALUES (v_adj_id, v_item.inventory_item_id, 'increase', v_change, v_prev_qty, v_new_qty,
+      VALUES (v_adj_id, v_dest_item_id, 'increase', v_change, v_prev_qty, v_new_qty,
               'Auto-adjusted: received via transfer ' || NEW.id, NEW.received_by);
     END LOOP;
   END IF;
