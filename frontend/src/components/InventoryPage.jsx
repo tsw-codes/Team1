@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
+import { formatAuditTimestamp } from "../utils/dateUtils"
 import {
     getInventoryItems,
     getInventoryFilterOptions,
@@ -86,7 +87,7 @@ function InventoryDetailContent({
 
                 <div>
                     <span className="detail-label">Updated: </span>
-                    <span className="detail-value">{item.updatedAt}</span>
+                    <span className="detail-value">{formatAuditTimestamp(item.updatedAt)}</span>
                 </div>
 
                 <div className="inventory-location-block">
@@ -542,7 +543,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
                                         <div>
                                             <span className="detail-label">Updated: </span>
-                                            <span className="detail-value">{item.updatedAt}</span>
+                                            <span className="detail-value">{formatAuditTimestamp(item.updatedAt)}</span>
                                         </div>
                                     </div>
 
