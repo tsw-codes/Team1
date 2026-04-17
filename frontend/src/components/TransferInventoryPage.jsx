@@ -420,9 +420,9 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         const createdTransfer = await createTransfer({
             manifestId: activeRecord.id,
 
-            requestId: activeRecord.requestId || "",
-            requestedBy: activeRecord.requestedBy || "",
-            approvedBy: activeRecord.approvedBy || "",
+            requestId: activeRecord.requestId || null,
+            requestedBy: activeRecord.requestedBy || null,
+            approvedBy: activeRecord.approvedBy || null,
             approvedAt: activeRecord.approvedAt || null,
 
             transferTypeValue,
@@ -507,10 +507,8 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         )
 
         const updatedTransfer = await updateTransfer(activeRecord.id, {
-            statusValue: "completed",
-            status: "Completed",
-            completionOutcomeValue: hasDiscrepancy ? "exception" : "standard",
-            completionOutcome: hasDiscrepancy ? "Exception" : "Completed",
+            statusValue: hasDiscrepancy ? "exception" : "completed",
+            status: hasDiscrepancy ? "Exception" : "Completed",
             receivedBy: currentUser?.username || "unknown",
             receivedAt: createAuditTimestamp(),
             receivedDate: activeRecord.receivedDate,
@@ -528,10 +526,10 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         setActiveRecord(updatedTransfer)
 
         showToast(
-            updatedTransfer.completionOutcomeValue === "exception"
+            updatedTransfer.statusValue === "exception"
                 ? `Transfer shipment ${updatedTransfer.id} completed with exception.`
                 : `Transfer shipment ${updatedTransfer.id} completed.`,
-            updatedTransfer.completionOutcomeValue === "exception" ? "warning" : "success"
+            updatedTransfer.statusValue === "exception" ? "warning" : "success"
         )
 
         setSelectedWorkItem("")
@@ -552,18 +550,18 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         return ""
     }
 
-    function getStatusLabel(status, outcome) {
+    function getStatusLabel(status) {
         if (status === "ready_to_ship") return "Ready to Ship"
         if (status === "in_transit") return "In Transit"
-        if (status === "completed" && outcome === "exception") return "Exception"
+        if (status === "exception") return "Exception"
         if (status === "completed") return "Completed"
         return ""
     }
 
-    function getStatusClass(status, outcome) {
+    function getStatusClass(status) {
         if (status === "ready_to_ship") return "reserved"
         if (status === "in_transit") return "in-transit"
-        if (status === "completed" && outcome === "exception") return "out-of-stock"
+        if (status === "exception") return "out-of-stock"
         if (status === "completed") return "available"
         return "reserved"
     }
@@ -644,7 +642,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                         {(availableTransfers ?? []).map((transfer) => (
                                             <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                                {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status, transfer.completionOutcomeValue)})
+                                                {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
                                             </option>
                                         ))}
                                     </select>
@@ -706,7 +704,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                     {(availableTransfers ?? []).map((transfer) => (
                                         <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                            {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status, transfer.completionOutcomeValue)})
+                                            {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
                                         </option>
                                     ))}
                                 </select>
@@ -717,12 +715,10 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <div className="section-heading-row">
                                 <h2 className="section-title">Transfer Information</h2>
                                 <span className={`status-badge ${getStatusClass(
-                                    isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status),
-                                    activeRecord.completionOutcomeValue
+                                    isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status)
                                 )}`}>
                                     {getStatusLabel(
-                                        isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status),
-                                        activeRecord.completionOutcomeValue
+                                        isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status)
                                     )}
                                 </span>
                             </div>

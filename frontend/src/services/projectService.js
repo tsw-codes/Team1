@@ -26,6 +26,8 @@ export async function getLocationOptions() {
  * Returns { value, label, type, projects: [...] } or null.
  */
 export async function getLocationByValue(value) {
+  if (!value) return null
+
   if (USE_MOCK) {
     return mockLocations.find((location) => location.value === value) || null
   }
@@ -53,6 +55,8 @@ export async function getLocationByValue(value) {
  * Returns project options for a given location value.
  */
 export async function getProjectOptionsForLocation(locationValue) {
+  if (!locationValue) return []
+
   if (USE_MOCK) {
     const location = mockLocations.find((l) => l.value === locationValue)
     return location?.projects || []
@@ -73,6 +77,8 @@ export async function getProjectOptionsForLocation(locationValue) {
  * Returns { value, label } or null.
  */
 export async function getProjectByValue(projectValue) {
+  if (!projectValue) return null
+
   if (USE_MOCK) {
     for (const location of mockLocations) {
       const match = location.projects.find((project) => project.value === projectValue)

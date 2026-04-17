@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { createAuditTimestamp } from "../utils/dateUtils"
-import { 
+import {
     getLocationOptions,
     getProjectOptionsForLocation,
     getLocationByValue,
     getProjectByValue,
 } from "../services/projectService"
+import { useAsyncData } from "../hooks/useAsyncData"
 import InfoHeader from "./InfoHeader"
 import Toast from "./Toast"
 import { buildPurchaseOrderPayload, createPurchaseOrder } from "../services/purchaseOrderService"
@@ -54,21 +55,21 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
 
     const [poItems, setPoItems] = useState([createEmptyPoItem()])
 
-    const locationOptions = useMemo(() => {
-        return getLocationOptions()
-    }, [])
+    const { data: locationOptions } = useAsyncData(
+        () => getLocationOptions(), []
+    )
 
-    const projectOptions = useMemo(() => {
-        return getProjectOptionsForLocation(poForm.locationValue)
-    }, [poForm.locationValue])
+    const { data: projectOptions } = useAsyncData(
+        () => getProjectOptionsForLocation(poForm.locationValue), [poForm.locationValue]
+    )
 
-    const selectedLocation = useMemo(() => {
-        return getLocationByValue(poForm.locationValue)
-    }, [poForm.locationValue])
+    const { data: selectedLocation } = useAsyncData(
+        () => getLocationByValue(poForm.locationValue), [poForm.locationValue]
+    )
 
-    const selectedProject = useMemo(() => {
-        return getProjectByValue(poForm.projectValue)
-    }, [poForm.projectValue])
+    const { data: selectedProject } = useAsyncData(
+        () => getProjectByValue(poForm.projectValue), [poForm.projectValue]
+    )
 
     function showToast(message, type = "success") {
         setToast({ message, type })
@@ -532,7 +533,7 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
                                         onChange={handlePoChange}
                                     >
                                         <option value="">Select Location</option>
-                                        {locationOptions.map((location) => (
+                                        {(locationOptions ?? []).map((location) => (
                                             <option key={location.value} value={location.value}>
                                                 {location.label}
                                             </option>
@@ -556,7 +557,7 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
                                         <option value="">
                                             {poForm.locationValue ? "Select project": "Select location first"}
                                         </option>
-                                        {projectOptions.map((project) => (
+                                        {(projectOptions ?? []).map((project) => (
                                             <option key={project.value} value={project.value}>
                                                 {project.label}
                                             </option>
