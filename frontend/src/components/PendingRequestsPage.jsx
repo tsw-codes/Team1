@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { formatAuditTimestamp, formatDate } from "../utils/dateUtils"
-import { 
+import {
     getRequestsPendingApproval,
     subscribeToRequests,
     approveRequest,
@@ -38,7 +38,7 @@ function PendingRequestDetailContent({
     showClose = false,
     requestRefs,
 }) {
-    if(!request) return null
+    if (!request) return null
 
     const requestItems = buildRequestItemsWithCost(request)
 
@@ -49,18 +49,20 @@ function PendingRequestDetailContent({
 
     return (
         <>
-            <div className="section-heading-row">
-                <h2 className="section-title">Request Details</h2>
-                {showClose && (
-                    <button className="text-button" onClick={onClose}>
-                        Close
-                    </button>
-                )}
-            </div>
+            <div className="detail-panel-header">
+                <div className="section-heading-row">
+                    <h2 className="section-title">Request Details</h2>
+                    {showClose && (
+                        <button className="text-button" onClick={onClose}>
+                            Close
+                        </button>
+                    )}
+                </div>
 
-            <h3 className="inventory-item-title">{request.project}</h3>
-            <p className="inventory-item-subtext">Request ID: {request.id}</p>
-            <span className="status-badge reserved">{request.status}</span>
+                <h3 className="inventory-item-title">{request.project}</h3>
+                <p className="inventory-item-subtext">Request ID: {request.id}</p>
+                <span className="status-badge reserved">{request.status}</span>
+            </div>
 
             <div className="inventory-card-details detail-panel-grid">
                 <div>
@@ -90,7 +92,9 @@ function PendingRequestDetailContent({
 
                 <div>
                     <span className="detail-label">Priority: </span>
-                    <span className={getPriorityBadgeClass(request.priorityValue)}>{request.priority}</span>
+                    <span className={getPriorityBadgeClass(request.priorityValue)}>
+                        {request.priority}
+                    </span>
                 </div>
 
                 <div>
@@ -129,7 +133,7 @@ function PendingRequestDetailContent({
                             <div className="receive-form-grid">
                                 <label className="form-group receive-form-span-2">
                                     <span className="form-label">Material</span>
-                                    <input 
+                                    <input
                                         className="form-input read-only-input"
                                         type="text"
                                         value={item.name}
@@ -139,7 +143,7 @@ function PendingRequestDetailContent({
 
                                 <label className="form-group">
                                     <span className="form-label">SKU</span>
-                                    <input 
+                                    <input
                                         className="form-input read-only-input"
                                         type="text"
                                         value={item.sku}
@@ -149,7 +153,7 @@ function PendingRequestDetailContent({
 
                                 <label className="form-group">
                                     <span className="form-label">Unit</span>
-                                    <input 
+                                    <input
                                         className="form-input read-only-input"
                                         type="text"
                                         value={item.unit}
@@ -159,7 +163,7 @@ function PendingRequestDetailContent({
 
                                 <label className="form-group">
                                     <span className="form-label">Requested Quantity</span>
-                                    <input 
+                                    <input
                                         className="form-input read-only-input"
                                         type="text"
                                         value={item.requestedQuantity}
@@ -169,7 +173,7 @@ function PendingRequestDetailContent({
 
                                 <label className="form-group">
                                     <span className="form-label">Unit Cost</span>
-                                    <input 
+                                    <input
                                         className="form-input read-only-input"
                                         type="text"
                                         value={formatCurrency(item.unitCost)}
@@ -179,7 +183,7 @@ function PendingRequestDetailContent({
 
                                 <label className="form-group">
                                     <span className="form-label">Line Total</span>
-                                    <input 
+                                    <input
                                         className="form-input read-only-input"
                                         type="text"
                                         value={formatCurrency(item.lineTotalCost)}
@@ -199,7 +203,7 @@ function PendingRequestDetailContent({
 
                 <label className="form-group">
                     <span className="form-label">Request Notes</span>
-                    <textarea 
+                    <textarea
                         className="form-textarea read-only-input"
                         value={request.notes || ""}
                         readOnly
@@ -208,9 +212,9 @@ function PendingRequestDetailContent({
 
                 <label className="form-group">
                     <span className="form-label">Approval Notes</span>
-                    <textarea 
+                    <textarea
                         ref={(el) => (requestRefs.current.approvalNotes = el)}
-                        className={`form-textarea ${approvalError ? "input-error": ""}`}
+                        className={`form-textarea ${approvalError ? "input-error" : ""}`}
                         name="approvalNotes"
                         value={approvalNotes}
                         onChange={onApprovalNotesChange}
@@ -250,7 +254,7 @@ function PendingRequestModal({
     return (
         <div className="inventory-modal-overlay" onClick={onClose}>
             <div className="inventory-modal-card" onClick={(e) => e.stopPropagation()}>
-                <PendingRequestDetailContent 
+                <PendingRequestDetailContent
                     request={request}
                     approvalNotes={approvalNotes}
                     approvalError={approvalError}
@@ -269,9 +273,14 @@ function PendingRequestModal({
 function PendingRequestsPage({ onBack, currentUser }) {
     const requestRefs = useRef({})
 
-    const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 900)
+    const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
+    const [filtersOpen, setFiltersOpen] = useState(false)
 
-    const { data: pendingRequests, loading: pendingLoading, setData: setPendingRequests } = useAsyncData(() => getRequestsPendingApproval())
+    const {
+        data: pendingRequests,
+        loading: pendingLoading,
+        setData: setPendingRequests,
+    } = useAsyncData(() => getRequestsPendingApproval())
 
     const [toast, setToast] = useState({ message: "", type: "success" })
 
@@ -307,6 +316,24 @@ function PendingRequestsPage({ onBack, currentUser }) {
         return unsubscribe
     }, [setPendingRequests])
 
+    useEffect(() => {
+        if (!selectedRequest) return
+
+        const refreshedSelectedRequest =
+            (pendingRequests ?? []).find(
+                (request) => String(request.id) === String(selectedRequest.id)
+            ) || null
+
+        if (!refreshedSelectedRequest) {
+            closeRequestDetails()
+            return
+        }
+
+        if (refreshedSelectedRequest !== selectedRequest) {
+            setSelectedRequest(refreshedSelectedRequest)
+        }
+    }, [pendingRequests, selectedRequest])
+
     function handleClearFilters() {
         setSearchTerm("")
         setProjectFilter("All")
@@ -331,9 +358,9 @@ function PendingRequestsPage({ onBack, currentUser }) {
 
     function openRequestDetails(requestId) {
         const request =
-        (pendingRequests ?? []).find(
-            (req) => String(req.id) === String(requestId)
-        ) || null
+            (pendingRequests ?? []).find(
+                (req) => String(req.id) === String(requestId)
+            ) || null
 
         if (!request || request.statusValue !== "pending_approval") return
 
@@ -454,14 +481,19 @@ function PendingRequestsPage({ onBack, currentUser }) {
         const today = new Date()
         const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
-        const urgentCount = safeRequestSummaries.filter((request) => request.priorityValue === "urgent").length
+        const urgentCount = safeRequestSummaries.filter(
+            (request) => request.priorityValue === "urgent"
+        ).length
 
         const dueSoonCount = safeRequestSummaries.filter((request) => {
             if (!request.neededByDate) return false
 
             const neededDate = new Date(request.neededByDate)
-
-            const neededMidnight = new Date(neededDate.getFullYear(), neededDate.getMonth(), neededDate.getDate())
+            const neededMidnight = new Date(
+                neededDate.getFullYear(),
+                neededDate.getMonth(),
+                neededDate.getDate()
+            )
 
             const diffDays = (neededMidnight - todayMidnight) / (1000 * 60 * 60 * 24)
 
@@ -472,8 +504,11 @@ function PendingRequestsPage({ onBack, currentUser }) {
             if (!request.neededByDate) return false
 
             const neededDate = new Date(request.neededByDate)
-
-            const neededMidnight = new Date(neededDate.getFullYear(), neededDate.getMonth(), neededDate.getDate())
+            const neededMidnight = new Date(
+                neededDate.getFullYear(),
+                neededDate.getMonth(),
+                neededDate.getDate()
+            )
 
             return neededMidnight < todayMidnight
         }).length
@@ -494,26 +529,41 @@ function PendingRequestsPage({ onBack, currentUser }) {
         return safeRequestSummaries.filter((request) => {
             const search = searchTerm.toLowerCase()
 
-            const matchesSearch = 
+            const matchesSearch =
                 request.id.toLowerCase().includes(search) ||
                 request.project.toLowerCase().includes(search) ||
                 request.location.toLowerCase().includes(search) ||
                 request.requestedBy.toLowerCase().includes(search) ||
                 request.sourceWarehouse.toLowerCase().includes(search)
 
-            const matchesProject = projectFilter === "All" || request.project === projectFilter
+            const matchesProject =
+                projectFilter === "All" || request.project === projectFilter
 
-            const matchesPriority = priorityFilter === "All" || request.priority === priorityFilter
+            const matchesPriority =
+                priorityFilter === "All" || request.priority === priorityFilter
 
-            const matchesRequester = requesterFilter === "All" || request.requestedBy === requesterFilter
+            const matchesRequester =
+                requesterFilter === "All" || request.requestedBy === requesterFilter
 
-            const matchesWarehouse = warehouseFilter === "All" || request.sourceWarehouse === warehouseFilter
+            const matchesWarehouse =
+                warehouseFilter === "All" || request.sourceWarehouse === warehouseFilter
 
             return (
-                matchesSearch && matchesProject && matchesPriority && matchesRequester && matchesWarehouse
+                matchesSearch &&
+                matchesProject &&
+                matchesPriority &&
+                matchesRequester &&
+                matchesWarehouse
             )
         })
-    }, [safeRequestSummaries, searchTerm, projectFilter, priorityFilter, requesterFilter, warehouseFilter])
+    }, [
+        safeRequestSummaries,
+        searchTerm,
+        projectFilter,
+        priorityFilter,
+        requesterFilter,
+        warehouseFilter,
+    ])
 
     const filteredCost = useMemo(() => {
         return filteredRequests.reduce(
@@ -528,7 +578,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
 
     return (
         <>
-            <div className="inventory-page">
+            <div className={`inventory-page ${filtersOpen && !isMobile ? "desktop-filters-open" : ""}`}>
                 <div className="inventory-page-scroll">
                     <FilterHeader
                         title="Pending Requests"
@@ -540,7 +590,7 @@ function PendingRequestsPage({ onBack, currentUser }) {
                         leftMetaValue={formatCurrency(filteredCost)}
                         rightMetaText={`${filteredRequests.length} request${filteredRequests.length !== 1 ? "s" : ""}`}
                     >
-                        <input 
+                        <input
                             type="text"
                             className="inventory-search"
                             placeholder="Search by request ID, project, requester, location, or warehouse."
@@ -634,7 +684,9 @@ function PendingRequestsPage({ onBack, currentUser }) {
                                                 <p className="inventory-item-subtext">Request ID: {request.id}</p>
                                             </div>
 
-                                            <span className={getPriorityBadgeClass(request.priorityValue)}>{request.priority}</span>
+                                            <span className={getPriorityBadgeClass(request.priorityValue)}>
+                                                {request.priority}
+                                            </span>
                                         </div>
 
                                         <div className="inventory-card-details">
@@ -681,23 +733,46 @@ function PendingRequestsPage({ onBack, currentUser }) {
                                 ))}
                             </div>
                         </div>
+
+                        <aside className="inventory-detail-panel inventory-detail-panel-scroll">
+                            {selectedRequest ? (
+                                <PendingRequestDetailContent
+                                    request={selectedRequest}
+                                    approvalNotes={approvalNotes}
+                                    approvalError={approvalError}
+                                    onApprovalNotesChange={handleApprovalNotesChange}
+                                    onApprove={handleApproveRequest}
+                                    onReject={handleRejectRequest}
+                                    onClose={closeRequestDetails}
+                                    showClose={true}
+                                    requestRefs={requestRefs}
+                                />
+                            ) : (
+                                <div className="detail-panel-empty">
+                                    <p>Select a request to view more details.</p>
+                                </div>
+                            )}
+                        </aside>
                     </section>
 
                     {formError && <div className="login-error">{formError}</div>}
 
-                    <PendingRequestModal 
-                        request={selectedRequest}
-                        approvalNotes={approvalNotes}
-                        approvalError={approvalError}
-                        onApprovalNotesChange={handleApprovalNotesChange}
-                        onApprove={handleApproveRequest}
-                        onReject={handleRejectRequest}
-                        onClose={closeRequestDetails}
-                        requestRefs={requestRefs}
-                    />
+                    {isMobile && (
+                        <PendingRequestModal
+                            request={selectedRequest}
+                            approvalNotes={approvalNotes}
+                            approvalError={approvalError}
+                            onApprovalNotesChange={handleApprovalNotesChange}
+                            onApprove={handleApproveRequest}
+                            onReject={handleRejectRequest}
+                            onClose={closeRequestDetails}
+                            requestRefs={requestRefs}
+                        />
+                    )}
                 </div>
             </div>
-            <Toast 
+
+            <Toast
                 message={toast.message}
                 type={toast.type}
                 onClose={() => setToast({ message: "", type: "success" })}

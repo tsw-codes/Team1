@@ -40,16 +40,18 @@ function InventoryDetailContent({
 
     return (
         <>
-            <div className="section-heading-row">
-                <h2 className="section-title">Item Details</h2>
-                {showClose && (
-                    <button className="text-button" onClick={onClose}>Close</button>
-                )}
-            </div>
+            <div className="detail-panel-header">
+                <div className="section-heading-row">
+                    <h2 className="section-title">Item Details</h2>
+                    {showClose && (
+                        <button className="text-button" onClick={onClose}>Close</button>
+                    )}
+                </div>
 
-            <h3 className="inventory-item-title">{item.name}</h3>
-            <p className="inventory-item-subtext">SKU: {item.sku}</p>
-            <span className={getStatusClass(item.status)}>{item.status}</span>
+                <h3 className="inventory-item-title">{item.name}</h3>
+                <p className="inventory-item-subtext">SKU: {item.sku}</p>
+                <span className={getStatusClass(item.status)}>{item.status}</span>
+            </div>
 
             <div className="inventory-card-details detail-panel-grid">
                 <div>
@@ -233,7 +235,7 @@ function AdjustInventoryModal({
 function InventoryPage({ permissions = [], currentUser, onBack }) {
     const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
 
-    const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 900)
+    const [filtersOpen, setFiltersOpen] = useState(false)
 
     const [searchTerm, setSearchTerm] = useState("")
     const [projectFilter, setProjectFilter] = useState("All")
@@ -425,7 +427,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     if (inventoryError) return <div>Failed to load inventory data.</div>
 
     return (
-        <div className="inventory-page">
+        <div className={`inventory-page ${filtersOpen && !isMobile ? "desktop-filters-open" : ""}`}>
             <div className="inventory-page-scroll">
                 <FilterHeader
                     title="Inventory"
