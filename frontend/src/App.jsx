@@ -604,9 +604,13 @@ function App() {
                 <Route
                   path='*'
                   element={
-                    <PageTransition direction={navDirection}>
-                      <NotFoundPage />
-                    </PageTransition>
+                    isLoggedIn ? (
+                      <PageTransition direction={navDirection}>
+                        <NotFoundPage />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
                   }
                 />
               </Routes>
