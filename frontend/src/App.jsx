@@ -80,7 +80,11 @@ function App() {
     username: '',
     password: '',
   })
-  const [loginError, setLoginError] = useState('')
+  const [loginErrors, setLoginErrors] = useState({
+    username: '',
+    password: '',
+    general: '',
+  })
 
   const [changePasswordForm, setChangePasswordForm] = useState({
     currentPassword: '',
@@ -171,21 +175,22 @@ function App() {
       [name]: value,
     }))
 
-    if (loginError) {
-      setLoginError('')
+    if (loginErrors.username || loginErrors.password || loginErrors.general) {
+      setLoginErrors({ username: '', password: '', general: '' })
     }
   }
 
   async function handleLogin(e) {
     e.preventDefault()
 
-    if (!loginForm.username.trim()) {
-      setLoginError('Username is required.')
-      return
+    const nextLoginErrors = {
+      username: loginForm.username.trim() ? '' : 'Username is required.',
+      password: loginForm.password ? '' : 'Password is required.',
+      general: '',
     }
 
-    if (!loginForm.password) {
-      setLoginError('Password is required.')
+    if (nextLoginErrors.username || nextLoginErrors.password) {
+      setLoginErrors(nextLoginErrors)
       return
     }
 
@@ -194,16 +199,24 @@ function App() {
 
       if (validUser) {
         setCurrentUser(validUser)
-        setLoginError('')
+        setLoginErrors({ username: '', password: '', general: '' })
         setIsLoggedIn(true)
         setNavDirection('forward')
         navigate('/home')
         return
       }
 
-      setLoginError('Invalid username or password.')
+      setLoginErrors({
+        username: '',
+        password: '',
+        general: 'Invalid username or password.',
+      })
     } catch (err) {
-      setLoginError(err.message || 'Something went wrong. Please try again.')
+      setLoginErrors({
+        username: '',
+        password: '',
+        general: err.message || 'Something went wrong. Please try again.',
+      })
     }
   }
 
@@ -228,7 +241,7 @@ function App() {
       confirmNewPassword: '',
     })
 
-    setLoginError('')
+    setLoginErrors({ username: '', password: '', general: '' })
     setChangePasswordError('')
     setChangePasswordSuccess('')
     setNavDirection('back')
@@ -382,7 +395,7 @@ function App() {
                     <PageTransition direction={navDirection}>
                       <LoginPage
                         loginForm={loginForm}
-                        loginError={loginError}
+                          loginErrors={loginErrors}
                         onChange={handleChange}
                         onLogin={handleLogin}
                       />

@@ -350,6 +350,7 @@
   font-size: 1rem;
   cursor: pointer;
   opacity: 0.75;
+  color: #21ae38;
 }
 
 .password-toggle:active {
@@ -1980,3 +1981,4 @@
     padding: 0.85rem;
   }
 }
+

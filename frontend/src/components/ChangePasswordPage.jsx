@@ -97,7 +97,7 @@ function ChangePasswordPage({ form, error, success, onChange, onSubmit, onBack }
                     {success && <div className="form-message form-message-success">{success}</div>}
 
                     <div className="change-password-actions">
-                        <button className="primary-button" type="submit" disabled={!canSave}>
+                        <button className="primary-button" type="submit">
                             Save
                         </button>
                         <button className="secondary-button" type="button" onClick={onBack}>

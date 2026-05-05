@@ -1,6 +1,6 @@
 import PasswordInput from "./PasswordInput"
 
-function LoginPage({ loginForm, loginError, onChange, onLogin}) {
+function LoginPage({ loginForm, loginErrors, onChange, onLogin}) {
     return(
         <div className="login-page">
             <div className="login-card">
@@ -32,7 +32,9 @@ function LoginPage({ loginForm, loginError, onChange, onLogin}) {
                         />
                     </label>
 
-                    {loginError && <div className="login-error">{loginError}</div>}
+                    {loginErrors.username && <div className="login-error">{loginErrors.username}</div>}
+                    {loginErrors.password && <div className="login-error">{loginErrors.password}</div>}
+                    {loginErrors.general && <div className="login-error">{loginErrors.general}</div>}
 
                     <button className="primary-button" type="submit">Log In</button>
                 </form>
