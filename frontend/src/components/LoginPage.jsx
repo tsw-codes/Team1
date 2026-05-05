@@ -10,15 +10,15 @@ function LoginPage({ loginForm, loginError, onChange, onLogin}) {
 
                 <form className="login-form" onSubmit={onLogin}>
                     <label className="form-group">
-                        <span className="form-label">Username</span>
+                        <span className="form-label">Username or Email</span>
                         <input
                             className="form-input"
                             type="text"
                             name="username"
                             value={loginForm.username}
                             onChange={onChange}
-                            placeholder="Enter Username"
-                        />  
+                            placeholder="Enter Username or Email"
+                        />
                     </label>
 
                     <label className="form-group">

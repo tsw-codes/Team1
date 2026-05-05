@@ -378,6 +378,11 @@ function App() {
             <AnimatePresence mode='wait' custom={navDirection}>
               <Routes location={location} key={location.pathname}>
                 <Route
+                  path='/'
+                  element={<Navigate to={isLoggedIn ? '/home' : '/login'} replace />}
+                />
+
+                <Route
                   path='/login'
                   element={
                     <PageTransition direction={navDirection}>
