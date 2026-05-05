@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { useAsyncData } from "../hooks/useAsyncData"
 import { createAuditTimestamp } from "../utils/dateUtils"
-import { createRequest } from "../services/requestService"
+import { buildRequestPayload, createRequest } from "../services/requestService"
 import { getRequestableInventoryForWarehouse } from "../services/inventoryService"
 import {
     getSiteLocationOptions,
@@ -11,6 +11,7 @@ import {
     getLocationByValue,
 } from "../services/projectService"
 import InfoHeader from "./InfoHeader"
+import Toast from "./Toast"
 
 function createEmptyRequestItem() {
     return {
@@ -26,6 +27,8 @@ function RequestMaterialPage({ onBack, currentUser }) {
     const requestRefs = useRef({})
     const itemFieldRefs = useRef({})
     const requestScrollRef = useRef(null)
+
+    const [toast, setToast] = useState({ message: "", type: "success" })
 
     const [infoOpen, setInfoOpen] = useState(() => window.innerWidth > 900)
 
@@ -75,6 +78,36 @@ function RequestMaterialPage({ onBack, currentUser }) {
         () => requestForm.sourceWarehouseValue ? getRequestableInventoryForWarehouse(requestForm.sourceWarehouseValue) : null,
         [requestForm.sourceWarehouseValue]
     )
+
+    const requestableInventory = warehouseInventory ?? []
+
+    function showToast(message, type = "success") {
+        setToast({ message, type })
+
+        window.clearTimeout(showToast.timeoutId)
+        showToast.timeoutId = window.setTimeout(() => {
+            setToast({ message: "", type: "success" })
+        }, 3000)
+    }
+
+    function resetRequestForm() {
+        setRequestForm({
+            requestedBy: currentUser?.username || "",
+            createdAt: createAuditTimestamp(),
+            locationValue: "",
+            projectValue: "",
+            neededByDate: "",
+            priorityValue: "",
+            sourceWarehouseValue: "",
+            deliveryLocationText: "",
+            notes: "",
+        })
+
+        setRequestedItems([])
+        setFormError("")
+        setRequestErrors({})
+        setItemErrors({})
+    }
 
     function handleRequestChange(e) {
         const { name, value } = e.target
@@ -218,9 +251,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
             newRequestErrors.locationValue = "Location is required."
         }
 
-        const validationLocation = await getLocationByValue(requestForm.locationValue)
-
-        if (requestForm.locationValue && validationLocation?.type !== "site") {
+        if (requestForm.locationValue && selectedLocation?.type !== "site") {
             newRequestErrors.locationValue = "Request must be delivered to a site location."
         }
 
@@ -251,15 +282,12 @@ function RequestMaterialPage({ onBack, currentUser }) {
             return false
         }
 
-        const inventoryForWarehouse = await getRequestableInventoryForWarehouse(
-            requestForm.sourceWarehouseValue
-        )
-
         requestedItems.forEach((item) => {
             const errors = {}
-            const selectedInventory = inventoryForWarehouse.find(
-                (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
-            ) || null
+            const selectedInventory =
+                requestableInventory.find(
+                    (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
+                ) || null
 
             if (!item.inventoryItemId.trim()) {
                 errors.inventoryItemId = "Material selection is required."
@@ -319,57 +347,27 @@ function RequestMaterialPage({ onBack, currentUser }) {
         const isValid = await validateRequestForm()
         if (!isValid) return
 
-        const priorityLabelMap = {
-            low: "Low",
-            normal: "Normal",
-            high: "High",
-            urgent: "Urgent",
-        }
+        const requestPayload = buildRequestPayload({
+            requestForm,
+            requestedItems,
+            selectedLocationLabel: selectedLocation?.label || "",
+            selectedLocationType: selectedLocation?.type || "",
+            selectedProjectLabel: selectedProject?.label || "",
+            selectedSourceWarehouseLabel: selectedSourceWarehouse?.label || "",
+        })
 
-        const newRequest = {
-            requestedBy: requestForm.requestedBy,
-            createdAt: requestForm.createdAt,
+        const createdRequest = await createRequest(requestPayload)
 
-            statusValue: "pending_approval",
-            status: "Pending Approval",
+        resetRequestForm()
 
-            approvedBy: null,
-            approvedAt: null,
+        setTimeout(() => {
+            requestScrollRef.current?.scrollTo({
+                top: 0,
+                behavior: "smooth",
+            })
+        }, 0)
 
-            rejectedBy: null,
-            rejectedAt: null,
-
-            approvalNotes: "",
-
-            locationValue: requestForm.locationValue,
-            location: selectedLocation?.label || "",
-            locationType: selectedLocation?.type || "",
-
-            projectValue: requestForm.projectValue,
-            project: selectedProject?.label || "",
-
-            neededByDate: requestForm.neededByDate,
-
-            priorityValue: requestForm.priorityValue,
-            priority: priorityLabelMap[requestForm.priorityValue] || "",
-
-            sourceWarehouseValue: requestForm.sourceWarehouseValue,
-            sourceWarehouse: selectedSourceWarehouse?.label || "",
-
-            deliveryLocationText: requestForm.deliveryLocationText.trim(),
-
-            notes: requestForm.notes,
-
-            items: requestedItems.map((item, index) => ({
-                id: index + 1,
-                inventoryItemId: Number(item.inventoryItemId),
-                requestedQuantity: Number(item.requestedQuantity),
-            })),
-        }
-
-        const createdRequest = await createRequest(newRequest)
-
-        alert(`Request ${createdRequest.id} created.`)
+        showToast(`Request ${createdRequest.id} created.`)
     }
 
     function scrollToFirstError(newRequestErrors, newItemErrors) {
@@ -428,336 +426,344 @@ function RequestMaterialPage({ onBack, currentUser }) {
     }
 
     return (
-        <div className="request-page">
-            <div className="request-page-scroll" ref={requestScrollRef}>
-                <form className="request-form" onSubmit={handleSubmitRequest}>
-                    <InfoHeader
-                        title="Request Material"
-                        subtitle="Request warehouse inventory for project use and future manifest fulfillment."
-                        onBack={onBack}
-                        infoOpen={infoOpen}
-                        onToggleInfo={() => setInfoOpen((prev) => !prev)}
-                        countText={`${requestedItems.length} item${requestedItems.length !== 1 ? "s" : ""}`}
-                    />
+        <>
+            <div className="request-page">
+                <div className="request-page-scroll" ref={requestScrollRef}>
+                    <form className="request-form" onSubmit={handleSubmitRequest}>
+                        <InfoHeader
+                            title="Request Material"
+                            subtitle="Request warehouse inventory for project use and future manifest fulfillment."
+                            onBack={onBack}
+                            infoOpen={infoOpen}
+                            onToggleInfo={() => setInfoOpen((prev) => !prev)}
+                            countText={`${requestedItems.length} item${requestedItems.length !== 1 ? "s" : ""}`}
+                        />
 
-                    <section className="page-section request-form-section">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Request Information</h2>
-                        </div>
+                        <section className="page-section request-form-section">
+                            <div className="section-heading-row">
+                                <h2 className="section-title">Request Information</h2>
+                            </div>
 
-                        <div className="receive-form-grid">
-                            <label className="form-group">
-                                <span className="form-label">Requested By</span>
-                                <input 
-                                    className="form-input read-only-input"
-                                    type="text"
-                                    name="requestedBy"
-                                    value={requestForm.requestedBy}
-                                    readOnly
-                                />
-                            </label>
+                            <div className="receive-form-grid">
+                                <label className="form-group">
+                                    <span className="form-label">Requested By</span>
+                                    <input 
+                                        className="form-input read-only-input"
+                                        type="text"
+                                        name="requestedBy"
+                                        value={requestForm.requestedBy}
+                                        readOnly
+                                    />
+                                </label>
 
-                            <label className="form-group">
-                                <span className="form-label">Location</span>
-                                <select
-                                    ref={(el) => (requestRefs.current.locationValue) = el}
-                                    className={`form-input ${requestErrors.locationValue ? "input-error": ""}`}
-                                    name="locationValue"
-                                    value={requestForm.locationValue}
-                                    onChange={handleRequestChange}
-                                >
-                                    <option value="">Select location</option>
-                                    {(locationOptions ?? []).map((location) => (
-                                        <option key={location.value} value={location.value}>
-                                            {location.label}
-                                        </option>
-                                    ))}
-                                </select>
-                                {requestErrors.locationValue && (
-                                    <span className="field-error">{requestErrors.locationValue}</span>
-                                )}
-                            </label>
-
-                            <label className="form-group">
-                                <span className="form-label">Project</span>
-                                <select
-                                    ref={(el) => (requestRefs.current.projectValue) = el}
-                                    className={`form-input ${requestErrors.projectValue ? "input-error": ""}`}
-                                    name="projectValue"
-                                    value={requestForm.projectValue}
-                                    onChange={handleRequestChange}
-                                    disabled={!requestForm.locationValue}
-                                >
-                                    <option value="">
-                                        {requestForm.locationValue ? "Select project" : "Select location first"}
-                                    </option>
-                                    {(projectOptions ?? []).map((project) => (
-                                        <option key={project.value} value={project.value}>
-                                            {project.label}
-                                        </option>
-                                    ))}
-                                </select>
-                                {requestErrors.projectValue && (
-                                    <span className="field-error">{requestErrors.projectValue}</span>
-                                )}
-                            </label>
-
-                            <label className="form-group">
-                                <span className="form-label">Needed By Date</span>
-                                <input 
-                                    ref={(el) => (requestRefs.current.neededByDate) = el}
-                                    className={`form-input ${requestErrors.neededByDate ? "input-error": ""}`}
-                                    type="date"
-                                    name="neededByDate"
-                                    value={requestForm.neededByDate}
-                                    onChange={handleRequestChange}
-                                />
-                                {requestErrors.neededByDate && (
-                                    <span className="field-error">{requestErrors.neededByDate}</span>
-                                )}
-                            </label>
-
-                            <label className="form-group">
-                                <span className="form-label">Priority</span>
-                                <select 
-                                    ref={(el) => (requestRefs.current.priorityValue) = el}
-                                    className={`form-input ${requestErrors.priorityValue ? "input-error": ""}`}
-                                    name="priorityValue"
-                                    value={requestForm.priorityValue}
-                                    onChange={handleRequestChange}   
-                                >
-                                    <option value="">Select Priority</option>
-                                    <option value="low">Low</option>
-                                    <option value="normal">Normal</option>
-                                    <option value="high">High</option>
-                                    <option value="urgent">Urgent</option>
-                                </select>
-                                {requestErrors.priorityValue && (
-                                    <span className="field-error">{requestErrors.priorityValue}</span>
-                                )}
-                            </label>
-
-                            <label className="form-group">
-                                <span className="form-label">Source Warehouse</span>
-                                <select 
-                                    ref={(el) => (requestRefs.current.sourceWarehouseValue) = el}
-                                    className={`form-input ${requestErrors.sourceWarehouseValue ? "input-error": ""}`}
-                                    name="sourceWarehouseValue"
-                                    value={requestForm.sourceWarehouseValue}
-                                    onChange={handleRequestChange}   
-                                >
-                                    <option value="">Select Warehouse</option>
-                                    {(warehouseOptions ?? []).map((warehouse) => (
-                                        <option key={warehouse.value} value={warehouse.value}>
-                                            {warehouse.label}
-                                        </option>
-                                    ))}
-                                </select>
-                                {requestErrors.sourceWarehouseValue && (
-                                    <span className="field-error">{requestErrors.sourceWarehouseValue}</span>
-                                )}
-                            </label>
-
-                            <label className="form-group">
-                                <span className="form-label">Requested Delivery Location</span>
-                                <input 
-                                    ref={(el) => (requestRefs.current.deliveryLocationText) = el}
-                                    className={`form-input ${requestErrors.deliveryLocationText ? "input-error": ""}`}
-                                    type="text"
-                                    name="deliveryLocationText"
-                                    value={requestForm.deliveryLocationText}
-                                    onChange={handleRequestChange}
-                                    placeholder="e.g. Loading Area, Dock 2, Trailer 1"
-                                />
-                                {requestErrors.deliveryLocationText && (
-                                    <span className="field-error">{requestErrors.deliveryLocationText}</span>
-                                )}
-                            </label>
-                        </div>
-                    </section>
-
-                    <section className="page-section request-form-section">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Requested Items</h2>
-                        </div>
-
-                        <div className="received-items-list">
-                            {requestedItems.map((item, index) => {
-                                const inventoryOptions = warehouseInventory ?? []
-                                const selectedInventory = inventoryOptions.find(
-                                    (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
-                                ) || null
-
-                                const selectedInventoryIds = requestedItems
-                                    .filter((requestItem) => requestItem.id !== item.id && requestItem.inventoryItemId)
-                                    .map((requestItem) => String(requestItem.inventoryItemId))
-
-                                return (
-                                    <div
-                                        className="received-item-card"
-                                        key={item.id}
-                                        ref={(el) => (itemRefs.current[item.id] = el)}
+                                <label className="form-group">
+                                    <span className="form-label">Location</span>
+                                    <select
+                                        ref={(el) => (requestRefs.current.locationValue) = el}
+                                        className={`form-input ${requestErrors.locationValue ? "input-error": ""}`}
+                                        name="locationValue"
+                                        value={requestForm.locationValue}
+                                        onChange={handleRequestChange}
                                     >
-                                        <div className="section-heading-row">
-                                            <h3 className="received-item-title">Item {index + 1}</h3>
-                                            {requestedItems.length > 1 && (
-                                                <button
-                                                    className="text-button"
-                                                    type="button"
-                                                    onClick={() => handleRemoveItem(item.id)}
-                                                >
-                                                    Remove
-                                                </button>
-                                            )}
-                                        </div>
+                                        <option value="">Select location</option>
+                                        {(locationOptions ?? []).map((location) => (
+                                            <option key={location.value} value={location.value}>
+                                                {location.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {requestErrors.locationValue && (
+                                        <span className="field-error">{requestErrors.locationValue}</span>
+                                    )}
+                                </label>
 
-                                        <div className="receive-form-grid">
-                                            <label className="form-group receive-form-span-2">
-                                                <span className="form-label">Material</span>
-                                                <select
-                                                    ref={(el) => {
-                                                        if (!itemFieldRefs.current[item.id]) {
-                                                            itemFieldRefs.current[item.id] = {}
-                                                        }
-                                                        itemFieldRefs.current[item.id].inventoryItemId = el
-                                                    }}
-                                                    className={`form-input ${itemErrors[item.id]?.inventoryItemId ? "input-error" : ""}`}
-                                                    value={item.inventoryItemId}
-                                                    onChange={(e) =>
-                                                        handleItemChange(item.id, "inventoryItemId", e.target.value)
-                                                    }
-                                                    disabled={!requestForm.sourceWarehouseValue}
-                                                >
-                                                    <option value="">
-                                                        {requestForm.sourceWarehouseValue ? "Select Material" : "Select warehouse first"}
-                                                    </option>
-                                                    {inventoryOptions
-                                                        .filter((inventoryItem) => !selectedInventoryIds.includes(String(inventoryItem.id)))
-                                                        .map((inventoryItem) => (
-                                                            <option key={inventoryItem.id} value={inventoryItem.id}>
-                                                                {inventoryItem.name} ({inventoryItem.sku})
-                                                            </option>
-                                                        ))
-                                                    }
-                                                </select>
-                                                {itemErrors[item.id]?.inventoryItemId && (
-                                                    <span className="field-error">
-                                                        {itemErrors[item.id].inventoryItemId}
-                                                    </span>
+                                <label className="form-group">
+                                    <span className="form-label">Project</span>
+                                    <select
+                                        ref={(el) => (requestRefs.current.projectValue) = el}
+                                        className={`form-input ${requestErrors.projectValue ? "input-error": ""}`}
+                                        name="projectValue"
+                                        value={requestForm.projectValue}
+                                        onChange={handleRequestChange}
+                                        disabled={!requestForm.locationValue}
+                                    >
+                                        <option value="">
+                                            {requestForm.locationValue ? "Select project" : "Select location first"}
+                                        </option>
+                                        {(projectOptions ?? []).map((project) => (
+                                            <option key={project.value} value={project.value}>
+                                                {project.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {requestErrors.projectValue && (
+                                        <span className="field-error">{requestErrors.projectValue}</span>
+                                    )}
+                                </label>
+
+                                <label className="form-group">
+                                    <span className="form-label">Needed By Date</span>
+                                    <input 
+                                        ref={(el) => (requestRefs.current.neededByDate) = el}
+                                        className={`form-input ${requestErrors.neededByDate ? "input-error": ""}`}
+                                        type="date"
+                                        name="neededByDate"
+                                        value={requestForm.neededByDate}
+                                        onChange={handleRequestChange}
+                                    />
+                                    {requestErrors.neededByDate && (
+                                        <span className="field-error">{requestErrors.neededByDate}</span>
+                                    )}
+                                </label>
+
+                                <label className="form-group">
+                                    <span className="form-label">Priority</span>
+                                    <select 
+                                        ref={(el) => (requestRefs.current.priorityValue) = el}
+                                        className={`form-input ${requestErrors.priorityValue ? "input-error": ""}`}
+                                        name="priorityValue"
+                                        value={requestForm.priorityValue}
+                                        onChange={handleRequestChange}   
+                                    >
+                                        <option value="">Select Priority</option>
+                                        <option value="low">Low</option>
+                                        <option value="normal">Normal</option>
+                                        <option value="high">High</option>
+                                        <option value="urgent">Urgent</option>
+                                    </select>
+                                    {requestErrors.priorityValue && (
+                                        <span className="field-error">{requestErrors.priorityValue}</span>
+                                    )}
+                                </label>
+
+                                <label className="form-group">
+                                    <span className="form-label">Source Warehouse</span>
+                                    <select 
+                                        ref={(el) => (requestRefs.current.sourceWarehouseValue) = el}
+                                        className={`form-input ${requestErrors.sourceWarehouseValue ? "input-error": ""}`}
+                                        name="sourceWarehouseValue"
+                                        value={requestForm.sourceWarehouseValue}
+                                        onChange={handleRequestChange}   
+                                    >
+                                        <option value="">Select Warehouse</option>
+                                        {(warehouseOptions ?? []).map((warehouse) => (
+                                            <option key={warehouse.value} value={warehouse.value}>
+                                                {warehouse.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {requestErrors.sourceWarehouseValue && (
+                                        <span className="field-error">{requestErrors.sourceWarehouseValue}</span>
+                                    )}
+                                </label>
+
+                                <label className="form-group">
+                                    <span className="form-label">Requested Delivery Location</span>
+                                    <input 
+                                        ref={(el) => (requestRefs.current.deliveryLocationText) = el}
+                                        className={`form-input ${requestErrors.deliveryLocationText ? "input-error": ""}`}
+                                        type="text"
+                                        name="deliveryLocationText"
+                                        value={requestForm.deliveryLocationText}
+                                        onChange={handleRequestChange}
+                                        placeholder="e.g. Loading Area, Dock 2, Trailer 1"
+                                    />
+                                    {requestErrors.deliveryLocationText && (
+                                        <span className="field-error">{requestErrors.deliveryLocationText}</span>
+                                    )}
+                                </label>
+                            </div>
+                        </section>
+
+                        <section className="page-section request-form-section">
+                            <div className="section-heading-row">
+                                <h2 className="section-title">Requested Items</h2>
+                            </div>
+
+                            <div className="received-items-list">
+                                {requestedItems.map((item, index) => {
+                                    const inventoryOptions = requestableInventory
+                                    const selectedInventory = inventoryOptions.find(
+                                        (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
+                                    ) || null
+
+                                    const selectedInventoryIds = requestedItems
+                                        .filter((requestItem) => requestItem.id !== item.id && requestItem.inventoryItemId)
+                                        .map((requestItem) => String(requestItem.inventoryItemId))
+
+                                    return (
+                                        <div
+                                            className="received-item-card"
+                                            key={item.id}
+                                            ref={(el) => (itemRefs.current[item.id] = el)}
+                                        >
+                                            <div className="section-heading-row">
+                                                <h3 className="received-item-title">Item {index + 1}</h3>
+                                                {requestedItems.length > 1 && (
+                                                    <button
+                                                        className="text-button"
+                                                        type="button"
+                                                        onClick={() => handleRemoveItem(item.id)}
+                                                    >
+                                                        Remove
+                                                    </button>
                                                 )}
-                                            </label>
+                                            </div>
 
-                                            <label className="form-group">
-                                                <span className="form-label">SKU</span>
-                                                <input 
-                                                    className="form-input read-only-input"
-                                                    type="text"
-                                                    value={selectedInventory?.sku || ""}
-                                                    readOnly
-                                                />
-                                            </label>
-
-                                            <label className="form-group">
-                                                <span className="form-label">Unit</span>
-                                                <input 
-                                                    className="form-input read-only-input"
-                                                    type="text"
-                                                    value={selectedInventory?.unit || ""}
-                                                    readOnly
-                                                />
-                                            </label>
-
-                                            <label className="form-group">
-                                                <span className="form-label">Available Quantity</span>
-                                                <input 
-                                                    className="form-input read-only-input"
-                                                    type="text"
-                                                    value={selectedInventory?.quantity ?? ""}
-                                                    readOnly
-                                                />
-                                            </label>
-
-                                            <label className="form-group">
-                                                <span className="form-label">Requested Quantity</span>
-                                                <input 
-                                                    ref={(el) => {
-                                                        if (!itemFieldRefs.current[item.id]) {
-                                                            itemFieldRefs.current[item.id] = {}
+                                            <div className="receive-form-grid">
+                                                <label className="form-group receive-form-span-2">
+                                                    <span className="form-label">Material</span>
+                                                    <select
+                                                        ref={(el) => {
+                                                            if (!itemFieldRefs.current[item.id]) {
+                                                                itemFieldRefs.current[item.id] = {}
+                                                            }
+                                                            itemFieldRefs.current[item.id].inventoryItemId = el
+                                                        }}
+                                                        className={`form-input ${itemErrors[item.id]?.inventoryItemId ? "input-error" : ""}`}
+                                                        value={item.inventoryItemId}
+                                                        onChange={(e) =>
+                                                            handleItemChange(item.id, "inventoryItemId", e.target.value)
                                                         }
-                                                        itemFieldRefs.current[item.id].requestedQuantity = el
-                                                    }}
-                                                    className={`form-input ${itemErrors[item.id]?.requestedQuantity ? "input-error" : ""}`}
-                                                    type="number"
-                                                    value={item.requestedQuantity}
-                                                    onChange={(e) =>
-                                                        handleItemChange(item.id, "requestedQuantity", e.target.value)
-                                                    }
-                                                    placeholder="0"
-                                                />
-                                                {itemErrors[item.id]?.requestedQuantity && (
-                                                    <span className="field-error">
-                                                        {itemErrors[item.id].requestedQuantity}
-                                                    </span>
-                                                )}
-                                            </label>
+                                                        disabled={!requestForm.sourceWarehouseValue}
+                                                    >
+                                                        <option value="">
+                                                            {requestForm.sourceWarehouseValue ? "Select Material" : "Select warehouse first"}
+                                                        </option>
+                                                        {inventoryOptions
+                                                            .filter((inventoryItem) => !selectedInventoryIds.includes(String(inventoryItem.id)))
+                                                            .map((inventoryItem) => (
+                                                                <option key={inventoryItem.id} value={inventoryItem.id}>
+                                                                    {inventoryItem.name} ({inventoryItem.sku})
+                                                                </option>
+                                                            ))
+                                                        }
+                                                    </select>
+                                                    {itemErrors[item.id]?.inventoryItemId && (
+                                                        <span className="field-error">
+                                                            {itemErrors[item.id].inventoryItemId}
+                                                        </span>
+                                                    )}
+                                                </label>
+
+                                                <label className="form-group">
+                                                    <span className="form-label">SKU</span>
+                                                    <input 
+                                                        className="form-input read-only-input"
+                                                        type="text"
+                                                        value={selectedInventory?.sku || ""}
+                                                        readOnly
+                                                    />
+                                                </label>
+
+                                                <label className="form-group">
+                                                    <span className="form-label">Unit</span>
+                                                    <input 
+                                                        className="form-input read-only-input"
+                                                        type="text"
+                                                        value={selectedInventory?.unit || ""}
+                                                        readOnly
+                                                    />
+                                                </label>
+
+                                                <label className="form-group">
+                                                    <span className="form-label">Available Quantity</span>
+                                                    <input 
+                                                        className="form-input read-only-input"
+                                                        type="text"
+                                                        value={selectedInventory?.quantity ?? ""}
+                                                        readOnly
+                                                    />
+                                                </label>
+
+                                                <label className="form-group">
+                                                    <span className="form-label">Requested Quantity</span>
+                                                    <input 
+                                                        ref={(el) => {
+                                                            if (!itemFieldRefs.current[item.id]) {
+                                                                itemFieldRefs.current[item.id] = {}
+                                                            }
+                                                            itemFieldRefs.current[item.id].requestedQuantity = el
+                                                        }}
+                                                        className={`form-input ${itemErrors[item.id]?.requestedQuantity ? "input-error" : ""}`}
+                                                        type="number"
+                                                        value={item.requestedQuantity}
+                                                        onChange={(e) =>
+                                                            handleItemChange(item.id, "requestedQuantity", e.target.value)
+                                                        }
+                                                        placeholder="0"
+                                                    />
+                                                    {itemErrors[item.id]?.requestedQuantity && (
+                                                        <span className="field-error">
+                                                            {itemErrors[item.id].requestedQuantity}
+                                                        </span>
+                                                    )}
+                                                </label>
+                                            </div>
                                         </div>
+                                    )
+                                })}
+                            </div>
+
+                            <div className="receive-add-item">
+                                {requestedItems.length === 0 && (
+                                    <div className="empty-state-message">
+                                        No items added yet. Select a source warehouse, then click Add Item.
                                     </div>
-                                )
-                            })}
-                        </div>
+                                )}
+                                <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={handleAddItem}
+                                    disabled={!requestForm.sourceWarehouseValue}
+                                >
+                                    + Add Item
+                                </button>
+                            </div>
+                        </section>
 
-                        <div className="receive-add-item">
-                            {requestedItems.length === 0 && (
-                                <div className="empty-state-message">
-                                    No items added yet. Select a source warehouse, then click Add Item.
-                                </div>
-                            )}
+                        <section className="page-section request-form-section">
+                            <div className="section-heading-row">
+                                <h2 className="section-title">Notes</h2>
+                            </div>
+
+                            <label className="form-group">
+                                <span className="form-label">Request Notes</span>
+                                <textarea 
+                                    className="form-textarea"
+                                    name="notes"
+                                    value={requestForm.notes}
+                                    onChange={handleRequestChange}
+                                    placeholder="Add notes about urgency, substitutions, delivery timing, or staging instructions."
+                                />
+                            </label>
+                        </section>
+
+                        <section className="receive-actions">
+                            {formError && <div className="login-error">{formError}</div>}
+
                             <button
                                 className="secondary-button"
                                 type="button"
-                                onClick={handleAddItem}
-                                disabled={!requestForm.sourceWarehouseValue}
+                                onClick={handleSaveDraft}
                             >
-                                + Add Item
+                                Save Draft
                             </button>
-                        </div>
-                    </section>
 
-                    <section className="page-section request-form-section">
-                        <div className="section-heading-row">
-                            <h2 className="section-title">Notes</h2>
-                        </div>
-
-                        <label className="form-group">
-                            <span className="form-label">Request Notes</span>
-                            <textarea 
-                                className="form-textarea"
-                                name="notes"
-                                value={requestForm.notes}
-                                onChange={handleRequestChange}
-                                placeholder="Add notes about urgency, substitutions, delivery timing, or staging instructions."
-                            />
-                        </label>
-                    </section>
-
-                    <section className="receive-actions">
-                        {formError && <div className="login-error">{formError}</div>}
-
-                        <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={handleSaveDraft}
-                        >
-                            Save Draft
-                        </button>
-
-                        <button className="primary-button" type="submit">
-                            Submit Request
-                        </button>
-                    </section>
-                </form>
+                            <button className="primary-button" type="submit">
+                                Submit Request
+                            </button>
+                        </section>
+                    </form>
+                </div>
             </div>
-        </div>
+
+            <Toast
+                message={toast.message}
+                type={toast.type}
+                onClose={() => setToast({ message: "", type: "success" })}
+            />
+        </>
     )
 }
 

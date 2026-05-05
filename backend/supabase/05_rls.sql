@@ -84,15 +84,15 @@ CREATE POLICY "profiles_update_own" ON profiles
 
 CREATE POLICY "profiles_admin_insert" ON profiles
   FOR INSERT TO authenticated
-  WITH CHECK (
-    (auth.jwt()->'user_metadata'->>'role')::text = 'admin'
-  );
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+  ));
 
 CREATE POLICY "profiles_admin_delete" ON profiles
   FOR DELETE TO authenticated
-  USING (
-    (auth.jwt()->'user_metadata'->>'role')::text = 'admin'
-  );
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+  ));
 
 
 -- --------------------------------------------------------

@@ -1,16 +1,94 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel } from '../utils/caseUtils'
-import {
-  mockInventory,
-  requestableInventory,
-} from "../data/mockInventory"
+import { mockInventory } from "../data/mockInventory"
 import { mockInventoryAdjustments } from "../data/mockInventoryAdjustements"
 import { createAuditTimestamp } from "../utils/dateUtils"
-import { getLocationByValue } from "./projectService"
+import { getLocationByValue, getProjectOptionsForLocation } from "./projectService"
+import { matchOrCreateMaterial } from "./materialService"
+import { findPurchaseOrderById } from "./purchaseOrderService"
 
-/**
- * Returns all warehouse location values (used to filter requestable inventory).
- */
+let inventoryListeners = []
+
+export function subscribeToInventory(listener) {
+  inventoryListeners.push(listener)
+
+  return () => {
+    inventoryListeners = inventoryListeners.filter((l) => l !== listener)
+  }
+}
+
+function notifyInventoryChange() {
+  inventoryListeners.forEach((listener) => listener())
+}
+
+/* =========================
+   MOCK DATA SOURCE (mock mode only)
+========================= */
+
+const inventoryDataSource = {
+  getAll() {
+    return mockInventory
+  },
+
+  findById(id) {
+    return (
+      mockInventory.find((item) => String(item.id) === String(id)) || null
+    )
+  },
+
+  replaceById(id, updatedItem) {
+    const index = mockInventory.findIndex(
+      (item) => String(item.id) === String(id)
+    )
+
+    if (index === -1) return null
+
+    mockInventory[index] = updatedItem
+    return mockInventory[index]
+  },
+
+  insert(item) {
+    mockInventory.unshift(item)
+    return item
+  },
+}
+
+/* =========================
+   PURE HELPERS
+========================= */
+
+function isWarehouseInventoryItem(item) {
+  if (!item?.locationValue) return false
+  // Warehouse location values follow the pattern WH-A, WH-B, etc.
+  return String(item.locationValue).startsWith("WH-")
+}
+
+function isRequestableInventoryItem(item) {
+  if (!item) return false
+  if (!isWarehouseInventoryItem(item)) return false
+  if (item.status === "In Transit") return false
+  if (Number(item.quantity || 0) <= 0) return false
+  return true
+}
+
+function getInventoryStatusFromQuantity(quantity) {
+  if (quantity <= 0) return "Out of Stock"
+  if (quantity <= 10) return "Low Stock"
+  return "Available"
+}
+
+function generateInventoryId() {
+  const numericIds = mockInventory
+    .map((item) => Number(item.id))
+    .filter((id) => !Number.isNaN(id))
+
+  return numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1
+}
+
+function normalizeString(value) {
+  return String(value || "").trim().toLowerCase()
+}
+
 async function getWarehouseLocationValues() {
   const { data, error } = await supabase
     .from('locations')
@@ -21,9 +99,10 @@ async function getWarehouseLocationValues() {
   return data.map((l) => l.value)
 }
 
-/**
- * Returns all inventory items.
- */
+/* =========================
+   READ FUNCTIONS (async)
+========================= */
+
 export async function getAllInventory() {
   if (USE_MOCK) return mockInventory
 
@@ -36,18 +115,14 @@ export async function getAllInventory() {
   return snakeToCamel(data)
 }
 
-/**
- * Alias for getAllInventory.
- */
 export async function getInventoryItems() {
   return getAllInventory()
 }
 
-/**
- * Returns inventory items from warehouse locations only (for material requests).
- */
 export async function getRequestableInventory() {
-  if (USE_MOCK) return requestableInventory
+  if (USE_MOCK) {
+    return mockInventory.filter((item) => isRequestableInventoryItem(item))
+  }
 
   const warehouseValues = await getWarehouseLocationValues()
   if (warehouseValues.length === 0) return []
@@ -62,14 +137,15 @@ export async function getRequestableInventory() {
   return snakeToCamel(data)
 }
 
-/**
- * Returns warehouse inventory filtered to a specific warehouse.
- */
 export async function getRequestableInventoryForWarehouse(sourceWarehouseValue) {
   if (!sourceWarehouseValue) return []
 
   if (USE_MOCK) {
-    return requestableInventory.filter((item) => item.locationValue === sourceWarehouseValue)
+    return mockInventory.filter(
+      (item) =>
+        isRequestableInventoryItem(item) &&
+        item.locationValue === sourceWarehouseValue
+    )
   }
 
   const { data, error } = await supabase
@@ -82,12 +158,13 @@ export async function getRequestableInventoryForWarehouse(sourceWarehouseValue) 
   return snakeToCamel(data)
 }
 
-/**
- * Finds a single requestable (warehouse) inventory item by ID.
- */
 export async function findRequestableInventoryItemById(id) {
   if (USE_MOCK) {
-    return requestableInventory.find((item) => String(item.id) === String(id)) || null
+    return (
+      mockInventory.find(
+        (item) => String(item.id) === String(id) && isRequestableInventoryItem(item)
+      ) || null
+    )
   }
 
   const warehouseValues = await getWarehouseLocationValues()
@@ -104,9 +181,6 @@ export async function findRequestableInventoryItemById(id) {
   return snakeToCamel(data)
 }
 
-/**
- * Finds any inventory item by ID.
- */
 export async function findInventoryItemById(id) {
   if (USE_MOCK) {
     return mockInventory.find((item) => String(item.id) === String(id)) || null
@@ -122,19 +196,8 @@ export async function findInventoryItemById(id) {
   return snakeToCamel(data)
 }
 
-/**
- * Returns unique filter options (projects, categories, statuses) for the inventory page.
- */
 export async function getInventoryFilterOptions() {
-  if (USE_MOCK) {
-    return {
-      projects: ["All", ...new Set(mockInventory.map((item) => item.project))],
-      categories: ["All", ...new Set(mockInventory.map((item) => item.category))],
-      statuses: ["All", ...new Set(mockInventory.map((item) => item.status))],
-    }
-  }
-
-  const items = await getAllInventory()
+  const items = USE_MOCK ? mockInventory : await getAllInventory()
   return {
     projects: ["All", ...new Set(items.map((item) => item.project))],
     categories: ["All", ...new Set(items.map((item) => item.category))],
@@ -142,20 +205,8 @@ export async function getInventoryFilterOptions() {
   }
 }
 
-/**
- * Returns inventory summary counts by status.
- */
 export async function getInventorySummary() {
-  if (USE_MOCK) {
-    return {
-      totalItems: mockInventory.length,
-      lowStock: mockInventory.filter((item) => item.status === "Low Stock").length,
-      outOfStock: mockInventory.filter((item) => item.status === "Out of Stock").length,
-      inTransit: mockInventory.filter((item) => item.status === "In Transit").length,
-    }
-  }
-
-  const items = await getAllInventory()
+  const items = USE_MOCK ? mockInventory : await getAllInventory()
   return {
     totalItems: items.length,
     lowStock: items.filter((item) => item.status === "Low Stock").length,
@@ -164,9 +215,6 @@ export async function getInventorySummary() {
   }
 }
 
-/**
- * Returns inventory at a specific location (used for return manifests).
- */
 export async function getInventoryForReturnSource(sourceLocationValue) {
   if (!sourceLocationValue) return []
 
@@ -184,14 +232,15 @@ export async function getInventoryForReturnSource(sourceLocationValue) {
   return snakeToCamel(data)
 }
 
-/**
- * Returns warehouse inventory at a specific location (used for warehouse transfer manifests).
- */
 export async function getInventoryForWarehouseSource(sourceLocationValue) {
   if (!sourceLocationValue) return []
 
   if (USE_MOCK) {
-    return requestableInventory.filter((item) => item.locationValue === sourceLocationValue)
+    return mockInventory.filter(
+      (item) =>
+        isRequestableInventoryItem(item) &&
+        item.locationValue === sourceLocationValue
+    )
   }
 
   const { data, error } = await supabase
@@ -204,9 +253,6 @@ export async function getInventoryForWarehouseSource(sourceLocationValue) {
   return snakeToCamel(data)
 }
 
-/**
- * Returns source inventory for a manifest based on mode and location.
- */
 export async function getManualSourceInventory(manifestMode, sourceLocation) {
   if (!sourceLocation) return []
 
@@ -221,7 +267,401 @@ export async function getManualSourceInventory(manifestMode, sourceLocation) {
   return []
 }
 
-// --- Mock-only helpers (used only when USE_MOCK is true) ---
+/* =========================
+   RECEIPT / TRANSFER MOCK HELPERS
+   (only used in mock mode — DB triggers handle this in Supabase mode)
+========================= */
+
+function getReceiptLineMatchKey(line, materialId = "") {
+  return {
+    materialId: String(materialId || ""),
+    sku: normalizeString(line.sku),
+    materialName: normalizeString(line.materialName),
+    locationValue: String(line.locationValue || ""),
+    projectValue: String(line.projectValue || ""),
+  }
+}
+
+function findInventoryRecordForReceiptLine(line, materialId = "") {
+  const matchKey = getReceiptLineMatchKey(line, materialId)
+
+  return (
+    inventoryDataSource.getAll().find((item) => {
+      const sameLocation = String(item.locationValue || "") === matchKey.locationValue
+      const sameProject = String(item.projectValue || "") === matchKey.projectValue
+
+      if (!sameLocation || !sameProject) return false
+
+      const itemMaterialId = String(item.materialId || "")
+      const itemSku = normalizeString(item.sku)
+      const itemName = normalizeString(item.name)
+
+      if (matchKey.materialId && itemMaterialId === matchKey.materialId) return true
+      if (matchKey.sku && itemSku === matchKey.sku) return true
+      if (!matchKey.sku && matchKey.materialName && itemName === matchKey.materialName) return true
+
+      return false
+    }) || null
+  )
+}
+
+function findPurchaseOrderLineUnitCost(receipt, line) {
+  if (!receipt?.purchaseOrderId) return 0
+
+  const purchaseOrder = findPurchaseOrderById(receipt.purchaseOrderId)
+  if (!purchaseOrder?.items?.length) return 0
+
+  const normalizedSku = normalizeString(line.sku)
+  const normalizedName = normalizeString(line.materialName)
+
+  const matchingLine =
+    purchaseOrder.items.find((poItem) => {
+      const poSku = normalizeString(poItem.sku)
+      const poName = normalizeString(poItem.materialName)
+
+      if (normalizedSku && poSku === normalizedSku) return true
+      if (!normalizedSku && normalizedName && poName === normalizedName) return true
+
+      return false
+    }) || null
+
+  return Number(matchingLine?.unitCost || 0)
+}
+
+function resolveMaterialForReceiptLine(receipt, line) {
+  const seededUnitCost =
+    line.source === "purchase_order"
+      ? findPurchaseOrderLineUnitCost(receipt, line)
+      : 0
+
+  return matchOrCreateMaterial({
+    sku: line.sku,
+    materialName: line.materialName,
+    category: line.category || "",
+    unit: line.unit,
+    defaultUnitCost: seededUnitCost,
+  })
+}
+
+function createInventoryRecordFromReceiptLine(receipt, line, material = null) {
+  const receivedQuantity = Number(line.receivedQuantity || 0)
+  const unitCost = Number(material?.defaultUnitCost || 0)
+
+  const newInventoryRecord = {
+    id: generateInventoryId(),
+    materialId: material?.id || "",
+    name: line.materialName,
+    sku: line.sku,
+    quantity: receivedQuantity,
+    unit: line.unit,
+    projectValue: receipt.projectValue,
+    project: receipt.project,
+    locationValue: receipt.locationValue,
+    location: receipt.location,
+    status: getInventoryStatusFromQuantity(receivedQuantity),
+    category: line.category || material?.category || "",
+    updatedAt: createAuditTimestamp(),
+    unitCost,
+    totalCost: unitCost * receivedQuantity,
+  }
+
+  return inventoryDataSource.insert(newInventoryRecord)
+}
+
+function updateInventoryRecordFromReceiptLine(existingItem, line, material = null) {
+  const receivedQuantity = Number(line.receivedQuantity || 0)
+  const previousQuantity = Number(existingItem.quantity || 0)
+  const newQuantity = previousQuantity + receivedQuantity
+
+  const unitCost = Number(existingItem.unitCost || material?.defaultUnitCost || 0)
+
+  const updatedItem = {
+    ...existingItem,
+    materialId: existingItem.materialId || material?.id || "",
+    quantity: newQuantity,
+    unit: line.unit || existingItem.unit,
+    category: line.category || existingItem.category || material?.category || "",
+    status: getInventoryStatusFromQuantity(newQuantity),
+    updatedAt: createAuditTimestamp(),
+    totalCost: unitCost * newQuantity,
+  }
+
+  return inventoryDataSource.replaceById(existingItem.id, updatedItem)
+}
+
+async function getTransferDestinationProject(transfer) {
+  const destinationLocation = await getLocationByValue(transfer?.destinationLocationValue)
+
+  if (!destinationLocation) {
+    return {
+      projectValue: transfer?.projectValue || "",
+      project: transfer?.project || "",
+    }
+  }
+
+  if (destinationLocation.type === "warehouse") {
+    const warehouseProjects = await getProjectOptionsForLocation(destinationLocation.value)
+    const warehouseProject = warehouseProjects[0] || null
+
+    return {
+      projectValue: warehouseProject?.value || "",
+      project: warehouseProject?.label || "",
+    }
+  }
+
+  return {
+    projectValue: transfer?.projectValue || "",
+    project: transfer?.project || "",
+  }
+}
+
+function findInventoryRecordForTransferDestination({
+  materialId = "",
+  sku = "",
+  name = "",
+  locationValue = "",
+  projectValue = "",
+}) {
+  const normalizedSku = normalizeString(sku)
+  const normalizedName = normalizeString(name)
+
+  return (
+    inventoryDataSource.getAll().find((item) => {
+      const sameLocation = String(item.locationValue || "") === String(locationValue || "")
+      const sameProject = String(item.projectValue || "") === String(projectValue || "")
+
+      if (!sameLocation || !sameProject) return false
+
+      if (materialId && String(item.materialId || "") === String(materialId)) {
+        return true
+      }
+
+      if (normalizedSku && normalizeString(item.sku) === normalizedSku) {
+        return true
+      }
+
+      if (!normalizedSku && normalizedName && normalizeString(item.name) === normalizedName) {
+        return true
+      }
+
+      return false
+    }) || null
+  )
+}
+
+function createInventoryRecordFromTransferReceipt({
+  transfer,
+  item,
+  sourceItem,
+  destinationProjectValue,
+  destinationProject,
+  destinationLocation,
+}) {
+  const receivedQuantity = Number(item.receivedQuantity || 0)
+  const unitCost = Number(sourceItem?.unitCost || 0)
+
+  const newInventoryRecord = {
+    id: generateInventoryId(),
+    materialId: item.materialId || sourceItem?.materialId || "",
+    name: sourceItem?.name || item.name || "",
+    sku: sourceItem?.sku || item.sku || "",
+    quantity: receivedQuantity,
+    unit: sourceItem?.unit || item.unit || "",
+    projectValue: destinationProjectValue,
+    project: destinationProject,
+    locationValue: transfer.destinationLocationValue || "",
+    location: destinationLocation,
+    status: getInventoryStatusFromQuantity(receivedQuantity),
+    category: sourceItem?.category || "",
+    updatedAt: createAuditTimestamp(),
+    unitCost,
+    totalCost: unitCost * receivedQuantity,
+  }
+
+  return inventoryDataSource.insert(newInventoryRecord)
+}
+
+function updateInventoryRecordFromTransferReceipt(existingItem, item, sourceItem = null) {
+  const receivedQuantity = Number(item.receivedQuantity || 0)
+  const previousQuantity = Number(existingItem.quantity || 0)
+  const newQuantity = previousQuantity + receivedQuantity
+  const unitCost = Number(existingItem.unitCost || sourceItem?.unitCost || 0)
+
+  const updatedItem = {
+    ...existingItem,
+    materialId: existingItem.materialId || item.materialId || sourceItem?.materialId || "",
+    name: existingItem.name || sourceItem?.name || item.name || "",
+    sku: existingItem.sku || sourceItem?.sku || item.sku || "",
+    unit: existingItem.unit || sourceItem?.unit || item.unit || "",
+    category: existingItem.category || sourceItem?.category || "",
+    quantity: newQuantity,
+    status: getInventoryStatusFromQuantity(newQuantity),
+    updatedAt: createAuditTimestamp(),
+    totalCost: unitCost * newQuantity,
+  }
+
+  return inventoryDataSource.replaceById(existingItem.id, updatedItem)
+}
+
+/* =========================
+   APPLY FUNCTIONS
+   In Supabase mode these are no-ops — the database triggers handle inventory updates
+   on receipt/ship/receive automatically. In mock mode they mutate the local store.
+========================= */
+
+export async function applyReceiptToInventory(receipt) {
+  if (!USE_MOCK) {
+    // DB trigger handles this when the receipt row is inserted.
+    return { updatedItems: [], createdItems: [] }
+  }
+
+  if (!receipt?.items?.length) {
+    return { updatedItems: [], createdItems: [] }
+  }
+
+  const updatedItems = []
+  const createdItems = []
+
+  receipt.items.forEach((line) => {
+    const receivedQuantity = Number(line.receivedQuantity || 0)
+    const material = resolveMaterialForReceiptLine(receipt, line)
+
+    const lineWithContext = {
+      ...line,
+      locationValue: receipt.locationValue,
+      projectValue: receipt.projectValue,
+    }
+
+    const existingItem = findInventoryRecordForReceiptLine(
+      lineWithContext,
+      material?.id || ""
+    )
+
+    if (existingItem) {
+      const updatedItem = updateInventoryRecordFromReceiptLine(existingItem, line, material)
+      if (updatedItem) updatedItems.push(updatedItem)
+      return
+    }
+
+    if (receivedQuantity > 0) {
+      const createdItem = createInventoryRecordFromReceiptLine(receipt, line, material)
+      if (createdItem) createdItems.push(createdItem)
+    }
+  })
+
+  if (updatedItems.length > 0 || createdItems.length > 0) {
+    notifyInventoryChange()
+  }
+
+  return { updatedItems, createdItems }
+}
+
+export async function applyTransferShipmentToInventory(transfer) {
+  if (!USE_MOCK) {
+    // DB trigger decrements source inventory when transfer status → in_transit.
+    return { updatedItems: [] }
+  }
+
+  if (!transfer?.items?.length) {
+    return { updatedItems: [] }
+  }
+
+  const updatedItems = []
+
+  transfer.items.forEach((item) => {
+    const sourceItem = inventoryDataSource.findById(item.inventoryItemId)
+    if (!sourceItem) return
+
+    const shippedQuantity = Number(item.shippedQuantity || 0)
+    const previousQuantity = Number(sourceItem.quantity || 0)
+    const newQuantity = Math.max(0, previousQuantity - shippedQuantity)
+
+    const updatedItem = {
+      ...sourceItem,
+      quantity: newQuantity,
+      status: getInventoryStatusFromQuantity(newQuantity),
+      updatedAt: createAuditTimestamp(),
+      totalCost: Number(sourceItem.unitCost || 0) * newQuantity,
+    }
+
+    const result = inventoryDataSource.replaceById(sourceItem.id, updatedItem)
+    if (result) updatedItems.push(result)
+  })
+
+  if (updatedItems.length > 0) {
+    notifyInventoryChange()
+  }
+
+  return { updatedItems }
+}
+
+export async function applyTransferReceiptToInventory(transfer) {
+  if (!USE_MOCK) {
+    // DB trigger increments destination inventory when transfer status → completed/exception.
+    return { updatedItems: [], createdItems: [] }
+  }
+
+  if (!transfer?.items?.length) {
+    return { updatedItems: [], createdItems: [] }
+  }
+
+  const destinationLocationRecord = await getLocationByValue(transfer.destinationLocationValue)
+  const destinationLocation = destinationLocationRecord?.label || transfer.destinationLocation || ""
+
+  const {
+    projectValue: destinationProjectValue,
+    project: destinationProject,
+  } = await getTransferDestinationProject(transfer)
+
+  const updatedItems = []
+  const createdItems = []
+
+  for (const item of transfer.items) {
+    const receivedQuantity = Number(item.receivedQuantity || 0)
+    if (receivedQuantity <= 0) continue
+
+    const sourceItem = inventoryDataSource.findById(item.inventoryItemId)
+
+    const existingDestinationItem = findInventoryRecordForTransferDestination({
+      materialId: item.materialId || sourceItem?.materialId || "",
+      sku: item.sku || sourceItem?.sku || "",
+      name: item.name || sourceItem?.name || "",
+      locationValue: transfer.destinationLocationValue || "",
+      projectValue: destinationProjectValue,
+    })
+
+    if (existingDestinationItem) {
+      const updatedItem = updateInventoryRecordFromTransferReceipt(
+        existingDestinationItem,
+        item,
+        sourceItem
+      )
+      if (updatedItem) updatedItems.push(updatedItem)
+      continue
+    }
+
+    const createdItem = createInventoryRecordFromTransferReceipt({
+      transfer,
+      item,
+      sourceItem,
+      destinationProjectValue,
+      destinationProject,
+      destinationLocation,
+    })
+
+    if (createdItem) createdItems.push(createdItem)
+  }
+
+  if (updatedItems.length > 0 || createdItems.length > 0) {
+    notifyInventoryChange()
+  }
+
+  return { updatedItems, createdItems }
+}
+
+/* =========================
+   ADJUSTMENTS
+========================= */
 
 function generateAdjustmentId() {
   const prefix = "ADJ"
@@ -233,15 +673,10 @@ function generateAdjustmentId() {
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber =
+    matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
   return `${prefix}-${nextNumber}`
-}
-
-function getInventoryStatusFromQuantity(quantity) {
-  if (quantity <= 0) return "Out of Stock"
-  if (quantity <= 10) return "Low Stock"
-  return "Available"
 }
 
 /**
@@ -258,10 +693,8 @@ export async function createInventoryAdjustment({
   permissions = [],
 }) {
   if (USE_MOCK) {
-    const index = mockInventory.findIndex((item) => String(item.id) === String(inventoryItemId))
-    if (index === -1) return null
-
-    const item = mockInventory[index]
+    const item = inventoryDataSource.findById(inventoryItemId)
+    if (!item) return null
 
     if (!(await canAdjustInventoryItemForPermissions(item, permissions))) {
       return null
@@ -296,13 +729,15 @@ export async function createInventoryAdjustment({
 
     const adjustedAt = createAuditTimestamp()
 
-    mockInventory[index] = {
+    const updatedItem = {
       ...item,
       quantity: newQuantity,
       totalCost: Number(item.unitCost || 0) * newQuantity,
       status: getInventoryStatusFromQuantity(newQuantity),
       updatedAt: adjustedAt,
     }
+
+    inventoryDataSource.replaceById(item.id, updatedItem)
 
     const adjustmentRecord = {
       id: generateAdjustmentId(),
@@ -318,10 +753,9 @@ export async function createInventoryAdjustment({
 
     mockInventoryAdjustments.unshift(adjustmentRecord)
 
-    return {
-      updatedItem: mockInventory[index],
-      adjustmentRecord,
-    }
+    notifyInventoryChange()
+
+    return { updatedItem, adjustmentRecord }
   }
 
   // Supabase mode: the RPC handles atomicity, status calc, and audit logging
@@ -336,6 +770,8 @@ export async function createInventoryAdjustment({
   if (error) throw new Error(error.message)
 
   const updatedItem = await findInventoryItemById(inventoryItemId)
+
+  notifyInventoryChange()
 
   return {
     updatedItem,

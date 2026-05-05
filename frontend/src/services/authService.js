@@ -4,6 +4,22 @@ import { mockUsers } from '../auth/mockUsers'
 const EMAIL_DOMAIN = 'coolsys.com'
 
 /**
+ * Returns all user profiles. Mock mode returns the local mock users array.
+ */
+export async function getAllUsers() {
+  if (USE_MOCK) {
+    return mockUsers.map(({ id, username, name, role }) => ({ id, username, name, role }))
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, username, name, role')
+
+  if (error) throw new Error(`Failed to load users: ${error.message}`)
+  return data
+}
+
+/**
  * Authenticates a user by username and password.
  * Returns { id, username, name, role } or null if invalid.
  */

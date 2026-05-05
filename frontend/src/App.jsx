@@ -15,9 +15,22 @@ import ManifestInventoryPage from './components/ManifestInventoryPage'
 import TransferInventoryPage from './components/TransferInventoryPage'
 import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
+import EnterPurchaseOrderPage from './components/EnterPurchaseOrderPage'
+import NotFoundPage from './components/NotFoundPage'
 
 import { getPermissionsForRole } from './auth/permissions'
-import { authenticateUser, updateUserPassword, signOut, getCurrentSession, onAuthStateChange } from './services/authService'
+import {
+  authenticateUser,
+  updateUserPassword,
+  signOut,
+  getCurrentSession,
+  onAuthStateChange,
+} from './services/authService'
+import {
+  applyUiPreferences,
+  getStoredUiPreferences,
+  updateStoredUiPreferences,
+} from './services/uiPreferencesService'
 
 const pageVariants = {
   enter: (direction) => ({
@@ -27,7 +40,7 @@ const pageVariants = {
   center: {
     x: 0,
     opacity: 1,
-  }, 
+  },
   exit: (direction) => ({
     x: direction === 'back' ? '100%' : '-100%',
     opacity: 0.95,
@@ -35,20 +48,20 @@ const pageVariants = {
 }
 
 function PageTransition({ children, direction }) {
-    return (
-      <motion.div
-        className='route-page'
-        custom={direction}
-        variants={pageVariants}
-        initial='enter'
-        animate='center'
-        exit='exit'
-        transition={{ duration: 0.5, ease: 'easeInOut'}}
-      >
-        {children}
-      </motion.div>
-    )
-  }
+  return (
+    <motion.div
+      className='route-page'
+      custom={direction}
+      variants={pageVariants}
+      initial='enter'
+      animate='center'
+      exit='exit'
+      transition={{ duration: 0.5, ease: 'easeInOut' }}
+    >
+      {children}
+    </motion.div>
+  )
+}
 
 function App() {
   const navigate = useNavigate()
@@ -60,6 +73,8 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState(null)
+
+  const [uiPreferences, setUiPreferences] = useState(() => getStoredUiPreferences())
 
   const [loginForm, setLoginForm] = useState({
     username: '',
@@ -76,16 +91,46 @@ function App() {
   const [changePasswordError, setChangePasswordError] = useState('')
   const [changePasswordSuccess, setChangePasswordSuccess] = useState('')
 
+  useEffect(() => {
+    applyUiPreferences(uiPreferences)
+  }, [uiPreferences])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+
+    if (uiPreferences.theme !== 'system') {
+      return undefined
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+
+    const handleThemeChange = () => {
+      applyUiPreferences(uiPreferences)
+    }
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleThemeChange)
+      return () => mediaQuery.removeEventListener('change', handleThemeChange)
+    }
+
+    mediaQuery.addListener(handleThemeChange)
+    return () => mediaQuery.removeListener(handleThemeChange)
+  }, [uiPreferences])
+
   // Restore session on page refresh
   useEffect(() => {
-    getCurrentSession().then((profile) => {
-      if (profile) {
-        setCurrentUser(profile)
-        setIsLoggedIn(true)
-      }
-    }).finally(() => {
-      setSessionLoading(false)
-    })
+    getCurrentSession()
+      .then((profile) => {
+        if (profile) {
+          setCurrentUser(profile)
+          setIsLoggedIn(true)
+        }
+      })
+      .finally(() => {
+        setSessionLoading(false)
+      })
   }, [])
 
   // Listen for auth state changes (token expiry, sign out from another tab)
@@ -99,6 +144,16 @@ function App() {
     })
     return unsubscribe
   }, [navigate])
+
+  function handleThemePreferenceChange(theme) {
+    const next = updateStoredUiPreferences({ theme })
+    setUiPreferences(next)
+  }
+
+  function handleStickyHeadersChange(stickyHeadersEnabled) {
+    const next = updateStoredUiPreferences({ stickyHeadersEnabled })
+    setUiPreferences(next)
+  }
 
   function showAccountToast(message, type = 'success') {
     setAccountToast({ message, type })
@@ -123,6 +178,16 @@ function App() {
 
   async function handleLogin(e) {
     e.preventDefault()
+
+    if (!loginForm.username.trim()) {
+      setLoginError('Username is required.')
+      return
+    }
+
+    if (!loginForm.password) {
+      setLoginError('Password is required.')
+      return
+    }
 
     try {
       const validUser = await authenticateUser(loginForm.username, loginForm.password)
@@ -289,10 +354,9 @@ function App() {
 
   const showAccountIcon = isLoggedIn && location.pathname !== '/login'
 
-  // Wait for session check before rendering routes (prevents redirect flash)
   if (sessionLoading) return null
 
-  return(
+  return (
     <>
       <div className='orientation-block'>
         <div className='orientation-message'>
@@ -301,8 +365,9 @@ function App() {
           <p>Please rotate your device back to portrait mode.</p>
         </div>
       </div>
+
       <div className='app-shell'>
-        <Navbar 
+        <Navbar
           isLoggedIn={showAccountIcon}
           onAccountClick={handleOpenAccount}
         />
@@ -311,26 +376,26 @@ function App() {
           <section className='content-window'>
             <AnimatePresence mode='wait' custom={navDirection}>
               <Routes location={location} key={location.pathname}>
-                <Route 
+                <Route
                   path='/login'
                   element={
                     <PageTransition direction={navDirection}>
-                      <LoginPage 
+                      <LoginPage
                         loginForm={loginForm}
                         loginError={loginError}
                         onChange={handleChange}
                         onLogin={handleLogin}
-                      />  
+                      />
                     </PageTransition>
                   }
                 />
 
-                <Route 
+                <Route
                   path='/home'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <HomePage 
+                        <HomePage
                           name={currentUser?.name ?? ""}
                           permissions={permissions}
                           onOpenPage={handleOpenPage}
@@ -339,18 +404,22 @@ function App() {
                     ) : (
                       <Navigate to='/login' replace />
                     )
-                  }  
+                  }
                 />
 
-                <Route 
+                <Route
                   path='/account'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <AccountPage 
+                        <AccountPage
                           username={currentUser?.username ?? ''}
                           name={currentUser?.name ?? ''}
                           role={currentUser?.role ?? ''}
+                          themePreference={uiPreferences.theme}
+                          stickyHeadersEnabled={uiPreferences.stickyHeadersEnabled}
+                          onThemeChange={handleThemePreferenceChange}
+                          onStickyHeadersChange={handleStickyHeadersChange}
                           onChangePassword={handleOpenChangePassword}
                           onLogout={handleLogout}
                           onBack={handleGoHome}
@@ -364,12 +433,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/change-password'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <ChangePasswordPage 
+                        <ChangePasswordPage
                           form={changePasswordForm}
                           error={changePasswordError}
                           success={changePasswordSuccess}
@@ -384,12 +453,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/inventory'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <InventoryPage 
+                        <InventoryPage
                           permissions={permissions}
                           currentUser={currentUser}
                           onBack={handleGoHome}
@@ -401,12 +470,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/receive-inventory'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <ReceiveInventoryPage 
+                        <ReceiveInventoryPage
                           onBack={handleGoHome}
                           currentUser={currentUser}
                           permissions={permissions}
@@ -418,12 +487,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/request-material'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <RequestMaterialPage 
+                        <RequestMaterialPage
                           onBack={handleGoHome}
                           currentUser={currentUser}
                         />
@@ -434,12 +503,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/manifest-inventory'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <ManifestInventoryPage 
+                        <ManifestInventoryPage
                           onBack={handleGoHome}
                           currentUser={currentUser}
                           permissions={permissions}
@@ -451,12 +520,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/transfer-inventory'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <TransferInventoryPage 
+                        <TransferInventoryPage
                           onBack={handleGoHome}
                           currentUser={currentUser}
                           permissions={permissions}
@@ -468,12 +537,12 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/pending-requests'
                   element={
                     isLoggedIn ? (
                       <PageTransition direction={navDirection}>
-                        <PendingRequestsPage 
+                        <PendingRequestsPage
                           onBack={handleGoHome}
                           currentUser={currentUser}
                         />
@@ -484,7 +553,7 @@ function App() {
                   }
                 />
 
-                <Route 
+                <Route
                   path='/shipment-tracking'
                   element={
                     isLoggedIn ? (
@@ -500,7 +569,30 @@ function App() {
                   }
                 />
 
-                <Route path="*" element={<Navigate to='/login' replace />} />
+                <Route
+                  path='/enter-purchase-order'
+                  element={
+                    isLoggedIn && permissions.includes("upload_purchase_orders") ? (
+                      <PageTransition direction={navDirection}>
+                        <EnterPurchaseOrderPage
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route
+                  path='*'
+                  element={
+                    <PageTransition direction={navDirection}>
+                      <NotFoundPage />
+                    </PageTransition>
+                  }
+                />
               </Routes>
             </AnimatePresence>
           </section>
@@ -509,6 +601,5 @@ function App() {
     </>
   )
 }
-
 
 export default App

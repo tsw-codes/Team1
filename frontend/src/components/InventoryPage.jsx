@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { hasPermission } from "../auth/permissions"
 import { formatCurrency } from "../utils/formatters"
+import { formatAuditTimestamp } from "../utils/dateUtils"
 import {
     getInventoryItems,
+    subscribeToInventory,
     createInventoryAdjustment,
     canAdjustInventoryItemForPermissions,
 } from "../services/inventoryService"
@@ -38,16 +40,18 @@ function InventoryDetailContent({
 
     return (
         <>
-            <div className="section-heading-row">
-                <h2 className="section-title">Item Details</h2>
-                {showClose && (
-                    <button className="text-button" onClick={onClose}>Close</button>
-                )}
-            </div>
+            <div className="detail-panel-header">
+                <div className="section-heading-row">
+                    <h2 className="section-title">Item Details</h2>
+                    {showClose && (
+                        <button className="text-button" onClick={onClose}>Close</button>
+                    )}
+                </div>
 
-            <h3 className="inventory-item-title">{item.name}</h3>
-            <p className="inventory-item-subtext">SKU: {item.sku}</p>
-            <span className={getStatusClass(item.status)}>{item.status}</span>
+                <h3 className="inventory-item-title">{item.name}</h3>
+                <p className="inventory-item-subtext">SKU: {item.sku}</p>
+                <span className={getStatusClass(item.status)}>{item.status}</span>
+            </div>
 
             <div className="inventory-card-details detail-panel-grid">
                 <div>
@@ -83,7 +87,7 @@ function InventoryDetailContent({
 
                 <div>
                     <span className="detail-label">Updated: </span>
-                    <span className="detail-value">{item.updatedAt}</span>
+                    <span className="detail-value">{formatAuditTimestamp(item.updatedAt)}</span>
                 </div>
 
                 <div className="inventory-location-block">
@@ -231,7 +235,7 @@ function AdjustInventoryModal({
 function InventoryPage({ permissions = [], currentUser, onBack }) {
     const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900)
 
-    const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 900)
+    const [filtersOpen, setFiltersOpen] = useState(false)
 
     const [searchTerm, setSearchTerm] = useState("")
     const [projectFilter, setProjectFilter] = useState("All")
@@ -260,24 +264,20 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     )
     const inventoryData = useMemo(() => rawInventoryData ?? [], [rawInventoryData])
 
-    const filterOptions = useMemo(() => {
-        return {
-            projects: ["All", ...new Set(inventoryData.map((item) => item.project))],
-            categories: ["All", ...new Set(inventoryData.map((item) => item.category))],
-            statuses: ["All", ...new Set(inventoryData.map((item) => item.status))],
-        }
-    }, [inventoryData])
+    const filterOptions = useMemo(() => ({
+        projects: ["All", ...new Set(inventoryData.map((item) => item.project))],
+        categories: ["All", ...new Set(inventoryData.map((item) => item.category))],
+        statuses: ["All", ...new Set(inventoryData.map((item) => item.status))],
+    }), [inventoryData])
 
-    const summary = useMemo(() => {
-        return {
-            totalItems: inventoryData.length,
-            lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
-            outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
-            inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
-        }
-    }, [inventoryData])
+    const summary = useMemo(() => ({
+        totalItems: inventoryData.length,
+        lowStock: inventoryData.filter((item) => item.status === "Low Stock").length,
+        outOfStock: inventoryData.filter((item) => item.status === "Out of Stock").length,
+        inTransit: inventoryData.filter((item) => item.status === "In Transit").length,
+    }), [inventoryData])
 
-    const { projects, categories, statuses } = filterOptions
+    const { projects = ["All"], categories = ["All"], statuses = ["All"] } = filterOptions
 
     const filteredItems = useMemo(() => {
         return inventoryData.filter((item) => {
@@ -315,6 +315,33 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
         return () => window.removeEventListener("resize", handleResize)
     }, [])
+
+    useEffect(() => {
+        async function refreshInventory() {
+            const refreshed = await getInventoryItems()
+            setRawInventoryData(refreshed)
+        }
+
+        const unsubscribe = subscribeToInventory(refreshInventory)
+
+        return unsubscribe
+    }, [setRawInventoryData])
+
+    useEffect(() => {
+        if (!selectedItem) return
+
+        const refreshedSelectedItem =
+            inventoryData.find((item) => String(item.id) === String(selectedItem.id)) || null
+
+        if (!refreshedSelectedItem) {
+            setSelectedItem(null)
+            return
+        }
+
+        if (refreshedSelectedItem !== selectedItem) {
+            setSelectedItem(refreshedSelectedItem)
+        }
+    }, [inventoryData, selectedItem])
 
     function handleClearFilters() {
         setSearchTerm("")
@@ -400,7 +427,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
     if (inventoryError) return <div>Failed to load inventory data.</div>
 
     return (
-        <div className="inventory-page">
+        <div className={`inventory-page ${filtersOpen && !isMobile ? "desktop-filters-open" : ""}`}>
             <div className="inventory-page-scroll">
                 <FilterHeader
                     title="Inventory"
@@ -519,7 +546,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
                                         <div>
                                             <span className="detail-label">Updated: </span>
-                                            <span className="detail-value">{item.updatedAt}</span>
+                                            <span className="detail-value">{formatAuditTimestamp(item.updatedAt)}</span>
                                         </div>
                                     </div>
 

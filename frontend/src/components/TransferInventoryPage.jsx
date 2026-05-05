@@ -1,7 +1,19 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createAuditTimestamp, formatAuditTimestamp, formatDate } from "../utils/dateUtils"
-import { createTransfer, getTransfersForPermissions, updateTransfer } from "../services/transferService"
-import { getAvailableManifestsForTransfer } from "../services/manifestService"
+import {
+    createTransfer,
+    getTransfersForPermissions,
+    subscribeToTransfers,
+    updateTransfer,
+} from "../services/transferService"
+import {
+    getAvailableManifestsForTransfer,
+    subscribeToManifests,
+} from "../services/manifestService"
+import {
+    applyTransferReceiptToInventory,
+    applyTransferShipmentToInventory,
+} from "../services/inventoryService"
 import { useAsyncData } from "../hooks/useAsyncData"
 import Toast from "./Toast"
 import InfoHeader from "./InfoHeader"
@@ -15,9 +27,20 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const [toast, setToast] = useState({ message: "", type: "success" })
 
-    const { data: availableManifests, loading: manifestsLoading, error: manifestsError } = useAsyncData(() => getAvailableManifestsForTransfer(permissions), [permissions])
+    const {
+        data: availableManifests,
+        loading: manifestsLoading,
+        error: manifestsError,
+        setData: setAvailableManifests,
+    } = useAsyncData(() => getAvailableManifestsForTransfer(permissions), [permissions])
 
-    const { data: availableTransfers, loading: transfersLoading, error: transfersError, refetch: refetchTransfers } = useAsyncData(() => getTransfersForPermissions(permissions), [permissions])
+    const {
+        data: availableTransfers,
+        loading: transfersLoading,
+        error: transfersError,
+        setData: setAvailableTransfers,
+        refetch: refetchTransfers,
+    } = useAsyncData(() => getTransfersForPermissions(permissions), [permissions])
 
     const [formError, setFormError] = useState("")
     const [transferErrors, setTransferErrors] = useState({})
@@ -36,6 +59,79 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
     const isReceiving = isTransfer && currentStatusValue === "in_transit"
     const isFinalized = isTransfer && currentStatusValue === "completed"
+
+    useEffect(() => {
+        async function refreshWorkItems() {
+            const [manifests, transfers] = await Promise.all([
+                getAvailableManifestsForTransfer(permissions),
+                getTransfersForPermissions(permissions),
+            ])
+            setAvailableManifests(manifests)
+            setAvailableTransfers(transfers)
+        }
+
+        const unsubscribeManifests = subscribeToManifests(refreshWorkItems)
+        const unsubscribeTransfers = subscribeToTransfers(refreshWorkItems)
+
+        return () => {
+            unsubscribeManifests()
+            unsubscribeTransfers()
+        }
+    }, [permissions, setAvailableManifests, setAvailableTransfers])
+
+    useEffect(() => {
+        if (!selectedWorkItem) return
+
+        const [recordType, recordId] = selectedWorkItem.split(":")
+
+        if (recordType === "manifest") {
+            const manifest = availableManifests.find((item) => item.id === recordId) || null
+
+            if (!manifest) {
+                setSelectedWorkItem("")
+                resetTransferSelection()
+                return
+            }
+
+            setActiveRecord((prev) => {
+                if (!prev || activeRecordType !== "manifest") return prev
+                return {
+                    ...manifest,
+                    shippedDate: prev.shippedDate || "",
+                }
+            })
+            return
+        }
+
+        if (recordType === "transfer") {
+            const transfer = availableTransfers.find((item) => item.id === recordId) || null
+
+            if (!transfer) {
+                setSelectedWorkItem("")
+                resetTransferSelection()
+                return
+            }
+
+            const normalizedTransfer =
+                (transfer.statusValue === "in_transit" || transfer.status === "In Transit")
+                    ? {
+                        ...transfer,
+                        items: transfer.items.map((item) => ({
+                            ...item,
+                            receivedQuantity:
+                                item.receivedQuantity === null || item.receivedQuantity === ""
+                                    ? item.shippedQuantity
+                                    : item.receivedQuantity,
+                        })),
+                    }
+                    : transfer
+
+            setActiveRecord((prev) => {
+                if (!prev || activeRecordType !== "transfer") return prev
+                return normalizedTransfer
+            })
+        }
+    }, [selectedWorkItem, availableManifests, availableTransfers, activeRecordType])
 
     function showToast(message, type = "success") {
         setToast({ message, type })
@@ -98,12 +194,12 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                     })),
                 } : transfer
 
-                setActiveRecord(normalizedTransfer)
-                setActiveRecordType("transfer")
-                setTransferErrors({})
-                setItemErrors({})
-                setFormError("")
-                return
+            setActiveRecord(normalizedTransfer)
+            setActiveRecordType("transfer")
+            setTransferErrors({})
+            setItemErrors({})
+            setFormError("")
+            return
         }
 
         resetTransferSelection()
@@ -316,27 +412,32 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         const isValid = validateShipment()
         if (!isValid) return
 
-        const newTransfer = {
+        const transferTypeValue = activeRecord.manifestTypeValue || activeRecord.manifestType
+
+        // Step 1: create transfer in ready_to_ship state with no shipped/received quantities.
+        // The auto-adjust DB trigger fires on UPDATE only, so inserting directly as
+        // in_transit would silently skip source-inventory deduction.
+        const createdTransfer = await createTransfer({
             manifestId: activeRecord.id,
 
-            requestId: activeRecord.requestId || "",
-            requestedBy: activeRecord.receivedBy || "",
-            approvedBy: activeRecord.approvedBy || "",
+            requestId: activeRecord.requestId || null,
+            requestedBy: activeRecord.requestedBy || null,
+            approvedBy: activeRecord.approvedBy || null,
             approvedAt: activeRecord.approvedAt || null,
 
-            transferTypeValue: activeRecord.manifestTypeValue || activeRecord.manifestType,
-            transferType: activeRecord.manifestType || activeRecord.manifestTypeValue,
+            transferTypeValue,
+            transferType: activeRecord.manifestType || transferTypeValue,
 
-            statusValue: "in_transit",
-            status: "In Transit",
+            statusValue: "ready_to_ship",
+            status: "Ready to Ship",
 
             createdBy: activeRecord.finalizedBy || activeRecord.createdBy || "unknown",
             createdAt: createAuditTimestamp(),
             manifestDate: activeRecord.manifestDate,
 
-            shippedDate: activeRecord.shippedDate,
-            shippedAt: createAuditTimestamp(),
-            shippedBy: currentUser?.username || "unknown",
+            shippedDate: null,
+            shippedAt: null,
+            shippedBy: null,
 
             receivedDate: null,
             receivedAt: null,
@@ -360,23 +461,37 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             items: activeRecord.items.map((item) => ({
                 ...item,
                 manifestQuantity: Number(item.manifestQuantity || 0),
-                shippedQuantity: Number(item.manifestQuantity || 0),
-                receivedQuantity: Number(item.manifestQuantity || 0),
+                shippedQuantity: null,
+                receivedQuantity: null,
                 varianceReason: "",
             })),
-        }
+        })
 
-        const createdTransfer = await createTransfer(newTransfer)
+        // Step 2: transition ready_to_ship → in_transit with shipped_quantity set per item.
+        // This UPDATE fires auto_adjust_inventory_on_transfer, which deducts source inventory.
+        const shippedTransfer = await updateTransfer(createdTransfer.id, {
+            statusValue: "in_transit",
+            status: "In Transit",
+            shippedDate: activeRecord.shippedDate,
+            shippedAt: createAuditTimestamp(),
+            shippedBy: currentUser?.username || "unknown",
+            items: createdTransfer.items.map((item) => ({
+                id: item.id,
+                shippedQuantity: Number(item.manifestQuantity || 0),
+            })),
+        })
 
-        setSelectedWorkItem(`transfer:${createdTransfer.id}`)
-        setActiveRecord(createdTransfer)
+        await applyTransferShipmentToInventory(shippedTransfer)
+
+        setSelectedWorkItem(`transfer:${shippedTransfer.id}`)
+        setActiveRecord(shippedTransfer)
         setActiveRecordType("transfer")
         setTransferErrors({})
         setItemErrors({})
         setFormError("")
 
         refetchTransfers()
-        showToast(`Transfer shipment ${createdTransfer.id} created.`)
+        showToast(`Transfer shipment ${shippedTransfer.id} created.`)
     }
 
     async function handleConfirmReceipt(e) {
@@ -392,10 +507,8 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         )
 
         const updatedTransfer = await updateTransfer(activeRecord.id, {
-            statusValue: "completed",
-            status: "Completed",
-            completionOutcomeValue: hasDiscrepancy ? "exception" : "standard",
-            completionOutcome: hasDiscrepancy ? "Exception" : "Completed",
+            statusValue: hasDiscrepancy ? "exception" : "completed",
+            status: hasDiscrepancy ? "Exception" : "Completed",
             receivedBy: currentUser?.username || "unknown",
             receivedAt: createAuditTimestamp(),
             receivedDate: activeRecord.receivedDate,
@@ -408,14 +521,26 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
             return
         }
 
+        await applyTransferReceiptToInventory(updatedTransfer)
+
         setActiveRecord(updatedTransfer)
 
         showToast(
-            updatedTransfer.completionOutcomeValue === "exception"
+            updatedTransfer.statusValue === "exception"
                 ? `Transfer shipment ${updatedTransfer.id} completed with exception.`
                 : `Transfer shipment ${updatedTransfer.id} completed.`,
-            updatedTransfer.completionOutcomeValue === "exception" ? "warning" : "success"
+            updatedTransfer.statusValue === "exception" ? "warning" : "success"
         )
+
+        setSelectedWorkItem("")
+        resetTransferSelection()
+
+        setTimeout(() => {
+            transferScrollRef.current?.scrollTo({
+                top: 0,
+                behavior: "smooth",
+            })
+        }, 0)
     }
 
     function getTransferTypeLabel(type) {
@@ -425,18 +550,18 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         return ""
     }
 
-    function getStatusLabel(status, outcome) {
+    function getStatusLabel(status) {
         if (status === "ready_to_ship") return "Ready to Ship"
         if (status === "in_transit") return "In Transit"
-        if (status === "completed" && outcome === "exception") return "Exception"
+        if (status === "exception") return "Exception"
         if (status === "completed") return "Completed"
         return ""
     }
 
-    function getStatusClass(status, outcome) {
+    function getStatusClass(status) {
         if (status === "ready_to_ship") return "reserved"
         if (status === "in_transit") return "in-transit"
-        if (status === "completed" && outcome === "exception") return "out-of-stock"
+        if (status === "exception") return "out-of-stock"
         if (status === "completed") return "available"
         return "reserved"
     }
@@ -517,7 +642,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                         {(availableTransfers ?? []).map((transfer) => (
                                             <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                                {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status, transfer.completionOutcomeValue)})
+                                                {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
                                             </option>
                                         ))}
                                     </select>
@@ -579,7 +704,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                     {(availableTransfers ?? []).map((transfer) => (
                                         <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                            {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status, transfer.completionOutcomeValue)})
+                                            {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
                                         </option>
                                     ))}
                                 </select>
@@ -590,12 +715,10 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <div className="section-heading-row">
                                 <h2 className="section-title">Transfer Information</h2>
                                 <span className={`status-badge ${getStatusClass(
-                                    isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status),
-                                    activeRecord.completionOutcomeValue
+                                    isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status)
                                 )}`}>
                                     {getStatusLabel(
-                                        isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status),
-                                        activeRecord.completionOutcomeValue
+                                        isManifest ? "ready_to_ship" : (activeRecord.statusValue || activeRecord.status)
                                     )}
                                 </span>
                             </div>
@@ -805,10 +928,17 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                             <div className="received-items-list">
                                 {activeRecord.items.map((item, index) => {
                                     const shippedQty = Number(item.shippedQuantity || 0)
-                                    const receivedQty = item.receivedQuantity === "" ? "" : Number(item.receivedQuantity)
-                                    const hasDiscrepancy = 
-                                        item.receivedQuantity !== "" &&
-                                        item.receivedQuantity !== null && 
+
+                                    const hasReceivedQuantity =
+                                        item.receivedQuantity !== undefined &&
+                                        item.receivedQuantity !== null &&
+                                        item.receivedQuantity !== ""
+
+                                    const receivedQty = hasReceivedQuantity ? Number(item.receivedQuantity) : ""
+
+                                    const hasDiscrepancy =
+                                        isTransfer &&
+                                        hasReceivedQuantity &&
                                         receivedQty !== shippedQty
 
                                     return (
@@ -954,7 +1084,7 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
                                             name="receivedDate"
                                             value={activeRecord.receivedDate || ""}
                                             onChange={handleTransferChange}
-                                            readOnly={!isReceiving}
+                                            disabled={!isReceiving}
                                         />
                                         {transferErrors.receivedDate && (
                                             <span className="field-error">{transferErrors.receivedDate}</span>

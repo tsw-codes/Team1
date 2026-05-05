@@ -1,6 +1,6 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel, camelToSnake } from '../utils/caseUtils'
-import { mockRequests, getRequestById } from "../data/mockRequests"
+import { mockRequests } from "../data/mockRequests"
 import { createAuditTimestamp } from "../utils/dateUtils"
 
 let listeners = []
@@ -9,12 +9,12 @@ export function subscribeToRequests(listener) {
   listeners.push(listener)
 
   return () => {
-    listeners = listeners.filter(l => l !== listener)
+    listeners = listeners.filter((l) => l !== listener)
   }
 }
 
 function notifyRequestChange() {
-  listeners.forEach(listener => listener())
+  listeners.forEach((listener) => listener())
 }
 
 // --- Mock-only helpers ---
@@ -29,7 +29,8 @@ function generateRequestId() {
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber =
+    matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
   return `${prefix}-${nextNumber}`
 }
@@ -67,24 +68,119 @@ function normalizeRequest(record) {
   }
 }
 
-const REQUEST_SELECT = '*, request_items (id, inventory_item_id, requested_quantity)'
+const REQUEST_SELECT = '*, request_items (id, inventory_item_id, requested_quantity, inventory_items (name, sku, unit, unit_cost))'
 
 function mapRequestRows(data) {
   if (!data) return []
   const rows = Array.isArray(data) ? data : [data]
 
   return rows.map((row) => {
-    const items = row.request_items || []
+    const rawItems = row.request_items || []
     const { request_items, ...rest } = row
     const converted = snakeToCamel(rest)
-    converted.items = snakeToCamel(items)
+    converted.items = rawItems.map((item) => {
+      const inv = item.inventory_items || {}
+      return {
+        id: item.id,
+        inventoryItemId: item.inventory_item_id,
+        requestedQuantity: item.requested_quantity,
+        name: inv.name || '',
+        sku: inv.sku || '',
+        unit: inv.unit || '',
+        unitCost: Number(inv.unit_cost || 0),
+      }
+    })
     return converted
   })
 }
 
+/* =========================
+   FORM HELPERS (pure, work in any mode)
+========================= */
+
 /**
- * Returns all requests.
+ * Builds a normalized request payload from form state.
  */
+export function buildRequestPayload({
+  requestForm,
+  requestedItems,
+  selectedLocationLabel = "",
+  selectedLocationType = "",
+  selectedProjectLabel = "",
+  selectedSourceWarehouseLabel = "",
+}) {
+  const priorityLabelMap = {
+    low: "Low",
+    normal: "Normal",
+    high: "High",
+    urgent: "Urgent",
+  }
+
+  return {
+    requestedBy: requestForm.requestedBy,
+    createdAt: requestForm.createdAt,
+
+    statusValue: "pending_approval",
+    status: "Pending Approval",
+
+    approvedBy: null,
+    approvedAt: null,
+
+    rejectedBy: null,
+    rejectedAt: null,
+
+    approvalNotes: "",
+
+    locationValue: requestForm.locationValue,
+    location: selectedLocationLabel,
+    locationType: selectedLocationType,
+
+    projectValue: requestForm.projectValue,
+    project: selectedProjectLabel,
+
+    neededByDate: requestForm.neededByDate,
+
+    priorityValue: requestForm.priorityValue,
+    priority: priorityLabelMap[requestForm.priorityValue] || "",
+
+    sourceWarehouseValue: requestForm.sourceWarehouseValue,
+    sourceWarehouse: selectedSourceWarehouseLabel,
+
+    deliveryLocationText: requestForm.deliveryLocationText.trim(),
+
+    notes: requestForm.notes,
+
+    items: requestedItems.map((item, index) => ({
+      id: index + 1,
+      inventoryItemId: Number(item.inventoryItemId),
+      requestedQuantity: Number(item.requestedQuantity),
+    })),
+  }
+}
+
+/**
+ * Enriches a request's items with computed cost fields.
+ * Item name/sku/unit/unitCost are already loaded via the JOIN in REQUEST_SELECT.
+ */
+export function buildRequestItemsWithCost(request) {
+  if (!request) return []
+
+  return request.items.map((item) => {
+    const requestedQuantity = Number(item.requestedQuantity || 0)
+    const unitCost = Number(item.unitCost || 0)
+    const lineTotalCost = requestedQuantity * unitCost
+
+    return {
+      ...item,
+      lineTotalCost,
+    }
+  })
+}
+
+/* =========================
+   READ FUNCTIONS
+========================= */
+
 export async function getAllRequests() {
   if (USE_MOCK) return mockRequests
 
@@ -97,9 +193,6 @@ export async function getAllRequests() {
   return mapRequestRows(data)
 }
 
-/**
- * Returns requests with status "pending_approval".
- */
 export async function getRequestsPendingApproval() {
   if (USE_MOCK) {
     return mockRequests.filter(
@@ -117,9 +210,11 @@ export async function getRequestsPendingApproval() {
   return mapRequestRows(data)
 }
 
-/**
- * Returns requests with status "approved".
- */
+export async function getPendingRequestCount() {
+  const pending = await getRequestsPendingApproval()
+  return pending.length
+}
+
 export async function getApprovedRequests() {
   if (USE_MOCK) {
     return mockRequests.filter(
@@ -137,11 +232,10 @@ export async function getApprovedRequests() {
   return mapRequestRows(data)
 }
 
-/**
- * Finds a single request by ID.
- */
 export async function findRequestById(id) {
-  if (USE_MOCK) return getRequestById(id)
+  if (USE_MOCK) {
+    return mockRequests.find((request) => request.id === id) || null
+  }
 
   const { data, error } = await supabase
     .from('requests_view')
@@ -152,6 +246,10 @@ export async function findRequestById(id) {
   if (error) return null
   return mapRequestRows(data)?.[0] || null
 }
+
+/* =========================
+   WRITE FUNCTIONS
+========================= */
 
 /**
  * Creates a new material request with its line items.
@@ -258,25 +356,11 @@ export async function updateRequest(id, updates) {
  * Approves a request. DB triggers enforce workflow rules.
  */
 export async function approveRequest(id, approvedBy, approvalNotes = "") {
-  if (USE_MOCK) {
-    const result = updateRequest(id, {
-      statusValue: "approved",
-      status: "Approved",
-      approvedBy,
-      approvedAt: createAuditTimestamp(),
-      rejectedBy: null,
-      rejectedAt: null,
-      approvalNotes,
-    })
-
-    notifyRequestChange()
-    return result
-  }
-
   const result = await updateRequest(id, {
     statusValue: "approved",
+    status: "Approved",
     approvedBy,
-    approvedAt: new Date().toISOString(),
+    approvedAt: createAuditTimestamp(),
     rejectedBy: null,
     rejectedAt: null,
     approvalNotes,
@@ -290,27 +374,13 @@ export async function approveRequest(id, approvedBy, approvalNotes = "") {
  * Rejects a request. DB triggers enforce workflow rules.
  */
 export async function rejectRequest(id, rejectedBy, approvalNotes = "") {
-  if (USE_MOCK) {
-    const result = updateRequest(id, {
-      statusValue: "rejected",
-      status: "Rejected",
-      approvedBy: null,
-      approvedAt: null,
-      rejectedBy,
-      rejectedAt: createAuditTimestamp(),
-      approvalNotes,
-    })
-
-    notifyRequestChange()
-    return result
-  }
-
   const result = await updateRequest(id, {
     statusValue: "rejected",
+    status: "Rejected",
     approvedBy: null,
     approvedAt: null,
     rejectedBy,
-    rejectedAt: new Date().toISOString(),
+    rejectedAt: createAuditTimestamp(),
     approvalNotes,
   })
 

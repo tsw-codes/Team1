@@ -37,6 +37,7 @@ export const mockManifests = [
       {
         id: "MO-1001-1",
         inventoryItemId: 7,
+        materialId: "MAT-1007",
         name: "Flexible Duct 10 in",
         sku: "FD-10",
         unit: "ft",
@@ -45,6 +46,7 @@ export const mockManifests = [
       {
         id: "MO-1001-2",
         inventoryItemId: 4,
+        materialId: "MAT-1004",
         name: "Air Diffuser 24x24",
         sku: "AD-2424",
         unit: "pcs",
@@ -90,6 +92,7 @@ export const mockManifests = [
       {
         id: "MW-1001-1",
         inventoryItemId: 3,
+        materialId: "MAT-1003",
         name: "Electrical Conduit 1 in",
         sku: "EC-100",
         unit: "pcs",
@@ -98,6 +101,7 @@ export const mockManifests = [
       {
         id: "MW-1001-2",
         inventoryItemId: 5,
+        materialId: "MAT-1005",
         name: "Ball Valve 2 in",
         sku: "BV-200",
         unit: "pcs",
@@ -143,6 +147,7 @@ export const mockManifests = [
       {
         id: "MR-1001-1",
         inventoryItemId: 9,
+        materialId: "MAT-1009",
         name: "Copper Elbow 3/4 in",
         sku: "CE-075",
         unit: "pcs",
@@ -151,6 +156,7 @@ export const mockManifests = [
       {
         id: "MR-1001-2",
         inventoryItemId: 10,
+        materialId: "MAT-1010",
         name: "Lighting Control Panel",
         sku: "LCP-01",
         unit: "pcs",
@@ -159,7 +165,3 @@ export const mockManifests = [
     ],
   },
 ]
-
-export function getManifestById(id) {
-  return mockManifests.find((manifest) => manifest.id === id) || null
-}

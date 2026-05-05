@@ -1,11 +1,13 @@
 export const mockInventory = [
   {
     id: 1,
+    materialId: "MAT-1001",
     name: 'Copper Pipe 3/4"',
     sku: "CP-075",
     quantity: 120,
     unit: "ft",
-    project: "Warehouse Stock",
+    projectValue: "WH-A-001",
+    project: "Warehouse A - Inventory",
     locationValue: "WH-A",
     location: "Warehouse A / Rack 3",
     status: "Available",
@@ -16,11 +18,13 @@ export const mockInventory = [
   },
   {
     id: 2,
+    materialId: "MAT-1002",
     name: "Steel Duct Connector",
     sku: "SDC-210",
     quantity: 16,
     unit: "pcs",
-    project: "Warehouse Stock",
+    projectValue: "WH-B-001",
+    project: "Warehouse B - Inventory",
     locationValue: "WH-B",
     location: "Warehouse B / Shelf 2",
     status: "Available",
@@ -31,11 +35,13 @@ export const mockInventory = [
   },
   {
     id: 3,
+    materialId: "MAT-1003",
     name: "Electrical Conduit 1 in",
     sku: "EC-100",
     quantity: 48,
     unit: "pcs",
-    project: "Warehouse Stock",
+    projectValue: "WH-A-001",
+    project: "Warehouse A - Inventory",
     locationValue: "WH-A",
     location: "Warehouse A / Rack 1",
     status: "Reserved",
@@ -46,11 +52,13 @@ export const mockInventory = [
   },
   {
     id: 4,
+    materialId: "MAT-1004",
     name: "Air Diffuser 24x24",
     sku: "AD-2424",
     quantity: 22,
     unit: "pcs",
-    project: "Warehouse Stock",
+    projectValue: "WH-C-001",
+    project: "Warehouse C - Inventory",
     locationValue: "WH-C",
     location: "Warehouse C / Bay 4",
     status: "Available",
@@ -61,11 +69,13 @@ export const mockInventory = [
   },
   {
     id: 5,
+    materialId: "MAT-1005",
     name: "Ball Valve 2 in",
     sku: "BV-200",
     quantity: 7,
     unit: "pcs",
-    project: "Warehouse Stock",
+    projectValue: "WH-A-001",
+    project: "Warehouse A - Inventory",
     locationValue: "WH-A",
     location: "Warehouse A / Bin 8",
     status: "Low Stock",
@@ -76,11 +86,13 @@ export const mockInventory = [
   },
   {
     id: 6,
+    materialId: "MAT-1006",
     name: "Breaker Panel 200A",
     sku: "BP-200A",
     quantity: 9,
     unit: "pcs",
-    project: "Warehouse Stock",
+    projectValue: "WH-C-001",
+    project: "Warehouse C - Inventory",
     locationValue: "WH-C",
     location: "Warehouse C / Secure Cage",
     status: "Available",
@@ -91,11 +103,13 @@ export const mockInventory = [
   },
   {
     id: 7,
+    materialId: "MAT-1007",
     name: "Flexible Duct 8 in",
     sku: "FD-800",
     quantity: 0,
     unit: "rolls",
-    project: "Warehouse Stock",
+    projectValue: "WH-B-001",
+    project: "Warehouse B - Inventory",
     locationValue: "WH-B",
     location: "Warehouse B / Rack 6",
     status: "Out of Stock",
@@ -106,11 +120,13 @@ export const mockInventory = [
   },
   {
     id: 8,
+    materialId: "MAT-1008",
     name: "Threaded Rod 1/2 in",
     sku: "TR-050",
     quantity: 85,
     unit: "pcs",
-    project: "Warehouse Stock",
+    projectValue: "WH-A-001",
+    project: "Warehouse A - Inventory",
     locationValue: "WH-A",
     location: "Warehouse A / Rack 5",
     status: "Available",
@@ -123,11 +139,13 @@ export const mockInventory = [
   /* non-warehouse examples so filtering can prove it works */
   {
     id: 9,
+    materialId: "MAT-1009",
     name: "Copper Elbow 3/4 in",
     sku: "CE-075",
     quantity: 12,
     unit: "pcs",
-    project: "South Garage",
+    projectValue: "SG-001",
+    project: "South Garage - Phase 1",
     locationValue: "SG",
     location: "South Garage / Storage Container",
     status: "Available",
@@ -138,11 +156,13 @@ export const mockInventory = [
   },
   {
     id: 10,
+    materialId: "MAT-1010",
     name: "Lighting Control Panel",
     sku: "LCP-01",
     quantity: 1,
     unit: "pcs",
-    project: "West Tower",
+    projectValue: "WT-001",
+    project: "West Tower - Core Buildout",
     locationValue: "WT",
     location: "West Tower / Electrical Room",
     status: "Available",
@@ -153,11 +173,13 @@ export const mockInventory = [
   },
   {
     id: 11,
+    materialId: "MAT-1011",
     name: "VAV Box",
     sku: "VAV-440",
     quantity: 2,
     unit: "pcs",
-    project: "Central Office",
+    projectValue: "CO-001",
+    project: "Central Office - Renovation",
     locationValue: "CO",
     location: "In Transit",
     status: "In Transit",
@@ -167,17 +189,3 @@ export const mockInventory = [
     totalCost: 1350,
   },
 ]
-
-export const warehouseNames = ["Warehouse A", "Warehouse B", "Warehouse C"]
-
-export function getWarehouseFromLocation(location) {
-  return (
-    warehouseNames.find((warehouse) => location.startsWith(warehouse)) || ""
-  )
-}
-
-export function isWarehouseInventoryItem(item) {
-  return getWarehouseFromLocation(item.location) !== ""
-}
-
-export const requestableInventory = mockInventory.filter(isWarehouseInventoryItem)

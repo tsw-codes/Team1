@@ -1,65 +1,5 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
-
-const mockLocations = [
-  {
-    value: "WH-A",
-    label: "Warehouse A",
-    type: "warehouse",
-    projects: [
-      { value: "WH-A-001", label: "Warehouse A - Inventory"},
-    ],
-  },
-  {
-    value: "WH-B",
-    label: "Warehouse B",
-    type: "warehouse",
-    projects: [
-      { value: "WH-B-001", label: "Warehouse B - Inventory"},
-    ],
-  },
-  {
-    value: "WH-C",
-    label: "Warehouse C",
-    type: "warehouse",
-    projects: [
-      { value: "WH-C-001", label: "Warehouse C - Inventory"},
-    ],
-  },
-  {
-    value: "SG",
-    label: "South Garage",
-    type: "site",
-    projects: [
-      { value: "SG-001", label: "South Garage - Phase 1" },
-      { value: "SG-002", label: "South Garage - Rough-In" },
-    ],
-  },
-  {
-    value: "WT",
-    label: "West Tower",
-    type: "site",
-    projects: [
-      { value: "WT-001", label: "West Tower - Core Buildout" },
-      { value: "WT-002", label: "West Tower - HVAC Upgrade" },
-    ],
-  },
-  {
-    value: "CO",
-    label: "Central Office",
-    type: "site",
-    projects: [
-      { value: "CO-001", label: "Central Office - Renovation" },
-    ],
-  },
-  {
-    value: "NA",
-    label: "North Annex",
-    type: "site",
-    projects: [
-      { value: "NA-001", label: "North Annex - Expansion" },
-    ],
-  },
-]
+import { mockLocations } from '../data/mockLocations'
 
 /**
  * Returns all locations as { value, label } options for dropdowns.
@@ -86,6 +26,8 @@ export async function getLocationOptions() {
  * Returns { value, label, type, projects: [...] } or null.
  */
 export async function getLocationByValue(value) {
+  if (!value) return null
+
   if (USE_MOCK) {
     return mockLocations.find((location) => location.value === value) || null
   }
@@ -113,6 +55,8 @@ export async function getLocationByValue(value) {
  * Returns project options for a given location value.
  */
 export async function getProjectOptionsForLocation(locationValue) {
+  if (!locationValue) return []
+
   if (USE_MOCK) {
     const location = mockLocations.find((l) => l.value === locationValue)
     return location?.projects || []
@@ -133,6 +77,8 @@ export async function getProjectOptionsForLocation(locationValue) {
  * Returns { value, label } or null.
  */
 export async function getProjectByValue(projectValue) {
+  if (!projectValue) return null
+
   if (USE_MOCK) {
     for (const location of mockLocations) {
       const match = location.projects.find((project) => project.value === projectValue)

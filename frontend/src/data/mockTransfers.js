@@ -45,6 +45,7 @@ export const mockTransfers = [
       {
         id: "TW-1001-1",
         inventoryItemId: 3,
+        materialId: "MAT-1003",
         name: "Electrical Conduit 1 in",
         sku: "EC-100",
         unit: "pcs",
@@ -56,6 +57,7 @@ export const mockTransfers = [
       {
         id: "TW-1001-2",
         inventoryItemId: 5,
+        materialId: "MAT-1005",
         name: "Ball Valve 2 in",
         sku: "BV-200",
         unit: "pcs",
@@ -112,6 +114,7 @@ export const mockTransfers = [
       {
         id: "TR-1001-1",
         inventoryItemId: 9,
+        materialId: "MAT-1009",
         name: "Copper Elbow 3/4 in",
         sku: "CE-075",
         unit: "pcs",
@@ -123,6 +126,7 @@ export const mockTransfers = [
       {
         id: "TR-1001-2",
         inventoryItemId: 10,
+        materialId: "MAT-1010",
         name: "Lighting Control Panel",
         sku: "LCP-01",
         unit: "pcs",
@@ -179,6 +183,7 @@ export const mockTransfers = [
       {
         id: "TO-1002-1",
         inventoryItemId: 4,
+        materialId: "MAT-1004",
         name: "Air Diffuser 24x24",
         sku: "AD-2424",
         unit: "pcs",
@@ -190,6 +195,7 @@ export const mockTransfers = [
       {
         id: "TO-1002-2",
         inventoryItemId: 6,
+        materialId: "MAT-1006",
         name: "Breaker Panel 200A",
         sku: "BP-200A",
         unit: "pcs",
@@ -246,6 +252,7 @@ export const mockTransfers = [
       {
         id: "TO-1003-1",
         inventoryItemId: 1,
+        materialId: "MAT-1001",
         name: 'Copper Pipe 3/4"',
         sku: "CP-075",
         unit: "ft",
@@ -257,11 +264,3 @@ export const mockTransfers = [
     ],
   },
 ]
-
-export function getTransferById(id) {
-  return mockTransfers.find((transfer) => transfer.id === id) || null
-}
-
-export function getTransfersByStatus(status) {
-  return mockTransfers.filter((transfer) => (transfer.statusValue || transfer.status) === status)
-}

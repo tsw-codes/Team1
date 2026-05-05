@@ -1,6 +1,12 @@
 import { supabase, USE_MOCK } from '../lib/supabaseClient'
 import { snakeToCamel, camelToSnake } from '../utils/caseUtils'
-import { mockManifests, getManifestById } from "../data/mockManifests"
+import { mockManifests } from "../data/mockManifests"
+import { mockTransfers } from "../data/mockTransfers"
+import { createAuditTimestamp } from "../utils/dateUtils"
+import {
+  getSiteLocationOptions,
+  getWarehouseLocationOptions,
+} from "./projectService"
 
 const manifestPermissionMap = {
   outbound: "create_outbound_manifest",
@@ -12,6 +18,20 @@ const transferPermissionMap = {
   outbound: "transfer_to_job_site",
   return: "transfer_to_warehouse",
   warehouse_transfer: "transfer_to_warehouse",
+}
+
+let manifestListeners = []
+
+export function subscribeToManifests(listener) {
+  manifestListeners.push(listener)
+
+  return () => {
+    manifestListeners = manifestListeners.filter((l) => l !== listener)
+  }
+}
+
+function notifyManifestChange() {
+  manifestListeners.forEach((listener) => listener())
 }
 
 // --- Mock-only helpers ---
@@ -33,7 +53,8 @@ function generateManifestId(manifestType) {
       return Number.isNaN(numericPart) ? 0 : numericPart
     })
 
-  const nextNumber = matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
+  const nextNumber =
+    matchingIds.length > 0 ? Math.max(...matchingIds) + 1 : 1001
 
   return `${prefix}-${nextNumber}`
 }
@@ -55,6 +76,7 @@ function mapManifestRow(row) {
       name: inv.name || '',
       sku: inv.sku || '',
       unit: inv.unit || '',
+      unitCost: Number(inv.unit_cost || 0),
       manifestQuantity: item.manifest_quantity,
     }
   })
@@ -62,7 +84,7 @@ function mapManifestRow(row) {
   return converted
 }
 
-const MANIFEST_SELECT = '*, manifest_items (id, inventory_item_id, manifest_quantity, inventory_items (name, sku, unit))'
+const MANIFEST_SELECT = '*, manifest_items (id, inventory_item_id, manifest_quantity, inventory_items (name, sku, unit, unit_cost))'
 
 function mapManifestRows(data) {
   if (!data) return []
@@ -70,9 +92,10 @@ function mapManifestRows(data) {
   return rows.map(mapManifestRow)
 }
 
-/**
- * Returns all manifests.
- */
+/* =========================
+   READ FUNCTIONS
+========================= */
+
 export async function getAllManifests() {
   if (USE_MOCK) return mockManifests
 
@@ -85,11 +108,8 @@ export async function getAllManifests() {
   return mapManifestRows(data)
 }
 
-/**
- * Finds a single manifest by ID.
- */
 export async function findManifestById(id) {
-  if (USE_MOCK) return getManifestById(id)
+  if (USE_MOCK) return mockManifests.find((m) => m.id === id) || null
 
   const { data, error } = await supabase
     .from('manifests_view')
@@ -101,9 +121,12 @@ export async function findManifestById(id) {
   return mapManifestRows(data)?.[0] || null
 }
 
+/* =========================
+   PERMISSION HELPERS (sync, pure)
+========================= */
+
 /**
  * Returns which manifest modes the user's permissions allow.
- * Pure permission check — no DB query needed.
  */
 export function getAllowedManifestModes(permissions = []) {
   return Object.keys(manifestPermissionMap).filter((mode) =>
@@ -111,33 +134,149 @@ export function getAllowedManifestModes(permissions = []) {
   )
 }
 
-/**
- * Returns finalized manifests that the user has permission to create transfers for.
- */
+/* =========================
+   LOCATION HELPERS
+   These delegate to projectService, which is async.
+========================= */
+
+export async function getAllowedSourceLocations(manifestMode) {
+  if (manifestMode === "return") return getSiteLocationOptions()
+  if (manifestMode === "warehouse_transfer") return getWarehouseLocationOptions()
+  if (manifestMode === "outbound") return getWarehouseLocationOptions()
+  return []
+}
+
+export async function getAllowedDestinationLocations(manifestMode) {
+  if (manifestMode === "return") return getWarehouseLocationOptions()
+  if (manifestMode === "warehouse_transfer") return getWarehouseLocationOptions()
+  if (manifestMode === "outbound") return getSiteLocationOptions()
+  return []
+}
+
+/* =========================
+   AVAILABLE MANIFESTS FOR TRANSFER
+========================= */
+
 export async function getAvailableManifestsForTransfer(permissions = []) {
   if (USE_MOCK) {
+    const shippedManifestIds = new Set(
+      (mockTransfers || [])
+        .map((transfer) => transfer.manifestId)
+        .filter(Boolean)
+    )
     return mockManifests.filter((manifest) => {
       if ((manifest.statusValue || manifest.status) !== "finalized") return false
-
+      if (shippedManifestIds.has(manifest.id)) return false
       const requiredPermission = transferPermissionMap[manifest.manifestType]
       return requiredPermission ? permissions.includes(requiredPermission) : false
     })
   }
 
-  const { data, error } = await supabase
-    .from('manifests_view')
-    .select(MANIFEST_SELECT)
-    .eq('status_value', 'finalized')
-    .order('created_at', { ascending: false })
+  const [manifestRes, transferRes] = await Promise.all([
+    supabase
+      .from('manifests_view')
+      .select(MANIFEST_SELECT)
+      .eq('status_value', 'finalized')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('transfers')
+      .select('manifest_id')
+      .not('manifest_id', 'is', null),
+  ])
 
-  if (error) throw new Error(error.message)
-  const results = mapManifestRows(data)
+  if (manifestRes.error) throw new Error(manifestRes.error.message)
+  if (transferRes.error) throw new Error(transferRes.error.message)
+
+  const shippedManifestIds = new Set(
+    (transferRes.data || []).map((row) => row.manifest_id)
+  )
+
+  const results = mapManifestRows(manifestRes.data).filter(
+    (manifest) => !shippedManifestIds.has(manifest.id)
+  )
 
   return results.filter((manifest) => {
     const requiredPermission = transferPermissionMap[manifest.manifestType]
     return requiredPermission ? permissions.includes(requiredPermission) : false
   })
 }
+
+/* =========================
+   FORM HELPERS
+========================= */
+
+export function buildManifestPayload({
+  manifestMode,
+  manifestForm,
+  editableManifestItems,
+  selectedSourceLocation,
+  selectedDestinationLocation,
+  requestableInventoryItems,
+  manualSourceInventory,
+  currentUser,
+}) {
+  const finalizedAt = createAuditTimestamp()
+  const finalizedBy = currentUser?.username || "unknown"
+
+  return {
+    manifestTypeValue: manifestMode,
+    manifestType: manifestMode,
+    statusValue: "finalized",
+    status: "Finalized",
+
+    requestId: manifestForm.requestId || null,
+    requestedBy: manifestForm.requestedBy || null,
+    approvedBy: manifestForm.approvedBy || null,
+    approvedAt: manifestForm.approvedAt || null,
+
+    createdBy: manifestForm.createdBy,
+    createdAt: manifestForm.createdAt,
+
+    manifestDate: manifestForm.manifestDate,
+
+    locationValue: manifestForm.locationValue || null,
+    location: manifestForm.location,
+    projectValue: manifestForm.projectValue || null,
+    project: manifestForm.project,
+
+    finalizedBy,
+    finalizedAt,
+
+    sourceLocationValue: manifestForm.sourceLocationValue,
+    sourceLocation: selectedSourceLocation?.label || "",
+
+    destinationLocationValue: manifestForm.destinationLocationValue,
+    destinationLocation: selectedDestinationLocation?.label || "",
+    destinationDetail: manifestForm.destinationDetail || "",
+
+    notes: manifestForm.notes,
+
+    items: editableManifestItems.map((item) => {
+      const inventoryItem =
+        manifestMode === "outbound"
+          ? requestableInventoryItems.find(
+              (inventory) => inventory.id === item.inventoryItemId
+            )
+          : manualSourceInventory.find(
+              (inventory) => String(inventory.id) === String(item.inventoryItemId)
+            )
+
+      return {
+        id: item.id,
+        inventoryItemId: Number(item.inventoryItemId),
+        materialId: inventoryItem?.materialId || "",
+        name: inventoryItem?.name || "",
+        sku: inventoryItem?.sku || "",
+        unit: inventoryItem?.unit || "",
+        manifestQuantity: Number(item.manifestQuantity || 0),
+      }
+    }),
+  }
+}
+
+/* =========================
+   WRITE FUNCTIONS
+========================= */
 
 /**
  * Creates a new manifest with its line items.
@@ -155,6 +294,7 @@ export async function createManifest(newManifest) {
     }
 
     mockManifests.unshift(manifestWithId)
+    notifyManifestChange()
     return manifestWithId
   }
 
@@ -201,7 +341,9 @@ export async function createManifest(newManifest) {
   }
 
   // Re-fetch from view to get joined labels + items
-  return findManifestById(manifest.id)
+  const created = await findManifestById(manifest.id)
+  notifyManifestChange()
+  return created
 }
 
 /**
@@ -217,6 +359,7 @@ export async function updateManifest(id, updates) {
       ...updates,
     }
 
+    notifyManifestChange()
     return mockManifests[index]
   }
 
@@ -238,5 +381,7 @@ export async function updateManifest(id, updates) {
 
   if (error) throw new Error(error.message)
 
-  return findManifestById(id)
+  const result = await findManifestById(id)
+  notifyManifestChange()
+  return result
 }
