@@ -305,10 +305,10 @@ function findInventoryRecordForReceiptLine(line, materialId = "") {
   )
 }
 
-function findPurchaseOrderLineUnitCost(receipt, line) {
+async function findPurchaseOrderLineUnitCost(receipt, line) {
   if (!receipt?.purchaseOrderId) return 0
 
-  const purchaseOrder = findPurchaseOrderById(receipt.purchaseOrderId)
+  const purchaseOrder = await findPurchaseOrderById(receipt.purchaseOrderId)
   if (!purchaseOrder?.items?.length) return 0
 
   const normalizedSku = normalizeString(line.sku)
@@ -328,10 +328,10 @@ function findPurchaseOrderLineUnitCost(receipt, line) {
   return Number(matchingLine?.unitCost || 0)
 }
 
-function resolveMaterialForReceiptLine(receipt, line) {
+async function resolveMaterialForReceiptLine(receipt, line) {
   const seededUnitCost =
     line.source === "purchase_order"
-      ? findPurchaseOrderLineUnitCost(receipt, line)
+      ? await findPurchaseOrderLineUnitCost(receipt, line)
       : 0
 
   return matchOrCreateMaterial({
@@ -522,9 +522,9 @@ export async function applyReceiptToInventory(receipt) {
   const updatedItems = []
   const createdItems = []
 
-  receipt.items.forEach((line) => {
+  for (const line of receipt.items) {
     const receivedQuantity = Number(line.receivedQuantity || 0)
-    const material = resolveMaterialForReceiptLine(receipt, line)
+    const material = await resolveMaterialForReceiptLine(receipt, line)
 
     const lineWithContext = {
       ...line,
@@ -547,7 +547,7 @@ export async function applyReceiptToInventory(receipt) {
       const createdItem = createInventoryRecordFromReceiptLine(receipt, line, material)
       if (createdItem) createdItems.push(createdItem)
     }
-  })
+  }
 
   if (updatedItems.length > 0 || createdItems.length > 0) {
     notifyInventoryChange()

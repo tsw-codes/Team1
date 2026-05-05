@@ -103,3 +103,84 @@ LEFT JOIN locations loc  ON t.location_value = loc.value
 LEFT JOIN projects  proj ON t.project_value  = proj.value
 LEFT JOIN locations src  ON t.source_location_value = src.value
 LEFT JOIN locations dst  ON t.destination_location_value = dst.value;
+
+-- Purchase orders view: joins labels and summarizes line-level receiving progress
+CREATE VIEW purchase_orders_view WITH (security_invoker = true) AS
+SELECT
+  po.id, po.po_number, po.vendor, po.status_value,
+  po.expected_delivery_date, po.entered_by, po.entered_at,
+  po.location_value, po.project_value, po.notes, po.po_document_name,
+  po.created_at, po.updated_at,
+  loc.label AS location,
+  proj.label AS project,
+  CASE po.status_value
+    WHEN 'entered' THEN 'Entered'
+    WHEN 'partially_received' THEN 'Partially Received'
+    WHEN 'received' THEN 'Received'
+    WHEN 'closed_with_discrepancies' THEN 'Closed with Discrepancies'
+    WHEN 'cancelled' THEN 'Cancelled'
+    ELSE po.status_value
+  END AS status,
+  COALESCE(item_totals.line_count, 0) AS line_count,
+  COALESCE(item_totals.total_ordered_quantity, 0) AS total_ordered_quantity,
+  COALESCE(item_totals.total_received_quantity, 0) AS total_received_quantity,
+  COALESCE(item_totals.open_item_count, 0) AS open_item_count
+FROM purchase_orders po
+LEFT JOIN locations loc ON po.location_value = loc.value
+LEFT JOIN projects proj ON po.project_value = proj.value
+LEFT JOIN (
+  SELECT
+    poi.purchase_order_id,
+    COUNT(*) AS line_count,
+    COALESCE(SUM(poi.ordered_quantity), 0) AS total_ordered_quantity,
+    COALESCE(SUM(COALESCE(receipt_totals.received_quantity_total, 0)), 0) AS total_received_quantity,
+    COUNT(*) FILTER (
+      WHERE COALESCE(receipt_totals.received_quantity_total, 0) < poi.ordered_quantity
+    ) AS open_item_count
+  FROM purchase_order_items poi
+  LEFT JOIN (
+    SELECT
+      purchase_order_item_id,
+      COALESCE(SUM(received_quantity), 0) AS received_quantity_total
+    FROM receipt_items
+    WHERE purchase_order_item_id IS NOT NULL
+    GROUP BY purchase_order_item_id
+  ) receipt_totals ON receipt_totals.purchase_order_item_id = poi.id
+  GROUP BY poi.purchase_order_id
+) item_totals ON item_totals.purchase_order_id = po.id;
+
+-- Purchase order items view: line items with derived receiving totals
+CREATE VIEW purchase_order_items_view WITH (security_invoker = true) AS
+SELECT
+  poi.id, poi.purchase_order_id, poi.line_number,
+  poi.material_name, poi.sku, poi.category, poi.ordered_quantity,
+  poi.unit, poi.unit_cost, poi.created_at,
+  COALESCE(receipt_totals.received_quantity_total, 0) AS received_quantity_total,
+  GREATEST(poi.ordered_quantity - COALESCE(receipt_totals.received_quantity_total, 0), 0) AS remaining_quantity,
+  GREATEST(COALESCE(receipt_totals.received_quantity_total, 0) - poi.ordered_quantity, 0) AS over_received_quantity,
+  (COALESCE(receipt_totals.received_quantity_total, 0) >= poi.ordered_quantity) AS is_fully_received
+FROM purchase_order_items poi
+LEFT JOIN (
+  SELECT
+    purchase_order_item_id,
+    COALESCE(SUM(received_quantity), 0) AS received_quantity_total
+  FROM receipt_items
+  WHERE purchase_order_item_id IS NOT NULL
+  GROUP BY purchase_order_item_id
+) receipt_totals ON receipt_totals.purchase_order_item_id = poi.id;
+
+-- Receipts view: joins labels for frontend-friendly receipt reads
+CREATE VIEW receipts_view WITH (security_invoker = true) AS
+SELECT
+  r.id, r.purchase_order_id, r.vendor, r.po_number,
+  r.delivery_date, r.received_by, r.location_value, r.project_value,
+  r.status_value, r.has_discrepancy, r.notes, r.created_at,
+  loc.label AS location,
+  proj.label AS project,
+  CASE r.status_value
+    WHEN 'confirmed' THEN 'Confirmed'
+    ELSE r.status_value
+  END AS status
+FROM receipts r
+LEFT JOIN locations loc ON r.location_value = loc.value
+LEFT JOIN projects proj ON r.project_value = proj.value;

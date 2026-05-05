@@ -20,6 +20,12 @@ ALTER TABLE manifest_items         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transfers              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transfer_items         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory_adjustments  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE purchase_orders        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE purchase_order_items   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipts               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipt_items          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipt_attachments    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipt_item_serials   ENABLE ROW LEVEL SECURITY;
 
 
 -- --------------------------------------------------------
@@ -292,3 +298,121 @@ CREATE POLICY "adjustments_insert" ON inventory_adjustments
   ));
 
 -- No UPDATE or DELETE policies — audit log is immutable
+
+-- --------------------------------------------------------
+-- PURCHASE ORDERS
+-- --------------------------------------------------------
+CREATE POLICY "purchase_orders_select" ON purchase_orders
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "purchase_orders_insert" ON purchase_orders
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "purchase_orders_update" ON purchase_orders
+  FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'projectManager')
+  ));
+
+
+-- --------------------------------------------------------
+-- PURCHASE ORDER ITEMS
+-- --------------------------------------------------------
+CREATE POLICY "purchase_order_items_select" ON purchase_order_items
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "purchase_order_items_insert" ON purchase_order_items
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "purchase_order_items_update" ON purchase_order_items
+  FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "purchase_order_items_delete" ON purchase_order_items
+  FOR DELETE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'projectManager')
+  ));
+
+
+-- --------------------------------------------------------
+-- RECEIPTS
+-- --------------------------------------------------------
+CREATE POLICY "receipts_select" ON receipts
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "receipts_insert" ON receipts
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'warehouseManager', 'logisticsAssociate', 'logisticsForeman')
+  ));
+
+
+-- --------------------------------------------------------
+-- RECEIPT ITEMS
+-- --------------------------------------------------------
+CREATE POLICY "receipt_items_select" ON receipt_items
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "receipt_items_insert" ON receipt_items
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'warehouseManager', 'logisticsAssociate', 'logisticsForeman')
+  ));
+
+
+-- --------------------------------------------------------
+-- RECEIPT ATTACHMENTS
+-- --------------------------------------------------------
+CREATE POLICY "receipt_attachments_select" ON receipt_attachments
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "receipt_attachments_insert" ON receipt_attachments
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'warehouseManager', 'logisticsAssociate', 'logisticsForeman')
+  ));
+
+CREATE POLICY "receipt_attachments_update" ON receipt_attachments
+  FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'warehouseManager', 'logisticsAssociate', 'logisticsForeman')
+  ));
+
+
+-- --------------------------------------------------------
+-- RECEIPT ITEM SERIALS
+-- --------------------------------------------------------
+CREATE POLICY "receipt_item_serials_select" ON receipt_item_serials
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "receipt_item_serials_insert" ON receipt_item_serials
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'warehouseManager', 'logisticsAssociate', 'logisticsForeman')
+  ));
+
+CREATE POLICY "receipt_item_serials_update" ON receipt_item_serials
+  FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid()
+    AND role IN ('admin', 'warehouseManager', 'logisticsAssociate', 'logisticsForeman')
+  ));

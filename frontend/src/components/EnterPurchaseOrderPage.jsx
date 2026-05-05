@@ -35,6 +35,7 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
     const [infoOpen, setInfoOpen] = useState(() => window.innerWidth > 900)
 
     const [poPreview, setPoPreview] = useState(null)
+    const [isSubmitting, setIsSubmitting] = useState(false)
 
     const [formError, setFormError] = useState("")
     const [poErrors, setPoErrors] = useState({})
@@ -343,8 +344,9 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
         alert("Save Draft not yet implemented.")
     }
 
-    function handleSubmitPurchaseOrder(e) {
+    async function handleSubmitPurchaseOrder(e) {
         e.preventDefault()
+        if (isSubmitting) return
 
         const isValid = validatePurchaseOrderForm()
         if (!isValid) return
@@ -357,34 +359,41 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
             selectedProjectLabel: selectedProject?.label || "",
         })
         
-        const createdPurchaseOrder = createPurchaseOrder(purchaseOrderPayload)
+        try {
+            setIsSubmitting(true)
+            const createdPurchaseOrder = await createPurchaseOrder(purchaseOrderPayload)
 
-        setPoForm({
-            poNumber: "",
-            vendor: "",
-            expectedDeliveryDate: "",
-            enteredBy: currentUser?.username || "",
-            enteredAt: createAuditTimestamp(),
-            locationValue: "",
-            projectValue: "",
-            notes: "",
-        })
-
-        setPoPreview(null)
-        setPoErrors({})
-        setItemErrors({})
-        setFormError("")
-
-        setPoItems([createEmptyPoItem()])
-
-        showToast(`Purchase Order ${createdPurchaseOrder.poNumber} saved.`)
-
-        setTimeout(() => {
-            pageScrollRef.current?.scrollTo({
-                top: 0,
-                behavior: "smooth",
+            setPoForm({
+                poNumber: "",
+                vendor: "",
+                expectedDeliveryDate: "",
+                enteredBy: currentUser?.username || "",
+                enteredAt: createAuditTimestamp(),
+                locationValue: "",
+                projectValue: "",
+                notes: "",
             })
-        }, 0)
+
+            setPoPreview(null)
+            setPoErrors({})
+            setItemErrors({})
+            setFormError("")
+
+            setPoItems([createEmptyPoItem()])
+
+            showToast(`Purchase Order ${createdPurchaseOrder.poNumber} saved.`)
+
+            setTimeout(() => {
+                pageScrollRef.current?.scrollTo({
+                    top: 0,
+                    behavior: "smooth",
+                })
+            }, 0)
+        } catch (err) {
+            setFormError(err.message || "Unable to save purchase order.")
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     return (
@@ -768,12 +777,13 @@ function EnterPurchaseOrderPage( { onBack, currentUser }) {
                                 className="secondary-button"
                                 type="button"
                                 onClick={handleSaveDraft}
+                                disabled={isSubmitting}
                             >
                                 Save Draft
                             </button>
 
-                            <button className="primary-button" type="submit">
-                                Save Purchase Order
+                            <button className="primary-button" type="submit" disabled={isSubmitting}>
+                                {isSubmitting ? "Saving..." : "Save Purchase Order"}
                             </button>
                         </section>
                     </form>

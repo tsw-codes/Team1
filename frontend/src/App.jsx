@@ -16,6 +16,7 @@ import TransferInventoryPage from './components/TransferInventoryPage'
 import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
 import EnterPurchaseOrderPage from './components/EnterPurchaseOrderPage'
+import ManageLocationsPage from './components/ManageLocationsPage'
 import NotFoundPage from './components/NotFoundPage'
 
 import { getPermissionsForRole } from './auth/permissions'
@@ -561,6 +562,21 @@ function App() {
                         <ShipmentTrackingPage
                           onBack={handleGoHome}
                           permissions={permissions}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route
+                  path='/manage-locations'
+                  element={
+                    isLoggedIn && permissions.includes("manage_locations") ? (
+                      <PageTransition direction={navDirection}>
+                        <ManageLocationsPage
+                          onBack={handleGoHome}
                         />
                       </PageTransition>
                     ) : (

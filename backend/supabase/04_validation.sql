@@ -446,3 +446,423 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 CREATE TRIGGER transfers_auto_adjust_inventory
   AFTER UPDATE ON transfers
   FOR EACH ROW EXECUTE FUNCTION auto_adjust_inventory_on_transfer();
+
+
+-- --------------------------------------------------------
+-- PURCHASE ORDERS / RECEIPTS
+-- --------------------------------------------------------
+
+-- Receipt items linked to a purchase order must belong to the same purchase order as the receipt
+CREATE OR REPLACE FUNCTION validate_purchase_order_item_link()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_receipt_po_id TEXT;
+  v_item_po_id TEXT;
+BEGIN
+  IF NEW.purchase_order_item_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT purchase_order_id INTO v_receipt_po_id
+  FROM receipts
+  WHERE id = NEW.receipt_id;
+
+  SELECT purchase_order_id INTO v_item_po_id
+  FROM purchase_order_items
+  WHERE id = NEW.purchase_order_item_id;
+
+  IF v_item_po_id IS NULL THEN
+    RAISE EXCEPTION 'Purchase order item % does not exist.', NEW.purchase_order_item_id;
+  END IF;
+
+  IF v_receipt_po_id IS NULL THEN
+    RAISE EXCEPTION 'Cannot attach purchase order item % to a manual receipt with no purchase order.', NEW.purchase_order_item_id;
+  END IF;
+
+  IF v_receipt_po_id <> v_item_po_id THEN
+    RAISE EXCEPTION 'Receipt item does not belong to the same purchase order as receipt %.', NEW.receipt_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER receipt_items_validate_po_link
+  BEFORE INSERT ON receipt_items
+  FOR EACH ROW EXECUTE FUNCTION validate_purchase_order_item_link();
+
+-- Receipts: role must match receiving location type
+CREATE OR REPLACE FUNCTION validate_receipt_role()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_role TEXT;
+  v_location_type TEXT;
+BEGIN
+  v_role := get_current_user_role();
+
+  IF v_role = 'admin' THEN RETURN NEW; END IF;
+
+  IF NEW.location_value IS NULL THEN
+    RAISE EXCEPTION 'Receipt location is required.';
+  END IF;
+
+  SELECT type INTO v_location_type
+  FROM locations
+  WHERE value = NEW.location_value;
+
+  IF v_location_type IS NULL THEN
+    RAISE EXCEPTION 'Receipt location % does not exist.', NEW.location_value;
+  END IF;
+
+  IF v_location_type = 'warehouse' AND v_role NOT IN ('warehouseManager') THEN
+    RAISE EXCEPTION 'Only Warehouse Managers can receive inventory at warehouse locations.';
+  END IF;
+
+  IF v_location_type = 'site' AND v_role NOT IN ('logisticsAssociate', 'logisticsForeman') THEN
+    RAISE EXCEPTION 'Only Logistics Associates and Foremen can receive inventory at job site locations.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER receipts_validate_role
+  BEFORE INSERT ON receipts
+  FOR EACH ROW EXECUTE FUNCTION validate_receipt_role();
+
+-- Recalculate purchase order status based on cumulative receipt quantities
+CREATE OR REPLACE FUNCTION recalculate_purchase_order_status(p_purchase_order_id TEXT)
+RETURNS VOID AS $$
+DECLARE
+  v_has_items BOOLEAN;
+  v_total_ordered INTEGER;
+  v_total_received INTEGER;
+  v_any_receipts BOOLEAN;
+  v_any_discrepancies BOOLEAN;
+  v_any_over_receipt BOOLEAN;
+  v_new_status TEXT;
+BEGIN
+  IF p_purchase_order_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM purchase_order_items WHERE purchase_order_id = p_purchase_order_id
+  ) INTO v_has_items;
+
+  IF NOT v_has_items THEN
+    UPDATE purchase_orders
+    SET status_value = 'entered'
+    WHERE id = p_purchase_order_id
+      AND status_value <> 'cancelled';
+    RETURN;
+  END IF;
+
+  SELECT COALESCE(SUM(ordered_quantity), 0)
+  INTO v_total_ordered
+  FROM purchase_order_items
+  WHERE purchase_order_id = p_purchase_order_id;
+
+  SELECT COALESCE(SUM(ri.received_quantity), 0)
+  INTO v_total_received
+  FROM receipt_items ri
+  JOIN receipts r ON r.id = ri.receipt_id
+  WHERE r.purchase_order_id = p_purchase_order_id;
+
+  SELECT EXISTS (
+    SELECT 1 FROM receipts WHERE purchase_order_id = p_purchase_order_id
+  ) INTO v_any_receipts;
+
+  SELECT EXISTS (
+    SELECT 1 FROM receipts
+    WHERE purchase_order_id = p_purchase_order_id
+      AND has_discrepancy = true
+  ) INTO v_any_discrepancies;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM (
+      SELECT
+        poi.id,
+        poi.ordered_quantity,
+        COALESCE(SUM(ri.received_quantity), 0) AS received_total
+      FROM purchase_order_items poi
+      LEFT JOIN receipt_items ri ON ri.purchase_order_item_id = poi.id
+      WHERE poi.purchase_order_id = p_purchase_order_id
+      GROUP BY poi.id, poi.ordered_quantity
+    ) line_totals
+    WHERE received_total > ordered_quantity
+  ) INTO v_any_over_receipt;
+
+  IF NOT v_any_receipts OR v_total_received = 0 THEN
+    v_new_status := 'entered';
+  ELSIF v_total_received < v_total_ordered THEN
+    v_new_status := 'partially_received';
+  ELSIF v_any_discrepancies OR v_any_over_receipt THEN
+    v_new_status := 'closed_with_discrepancies';
+  ELSE
+    v_new_status := 'received';
+  END IF;
+
+  UPDATE purchase_orders
+  SET status_value = v_new_status
+  WHERE id = p_purchase_order_id
+    AND status_value <> 'cancelled';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Keep receipt discrepancy flag and PO status in sync with receipt items
+CREATE OR REPLACE FUNCTION sync_receipt_discrepancy_and_po_status()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_receipt_id TEXT;
+  v_receipt_po_id TEXT;
+  v_has_discrepancy BOOLEAN;
+BEGIN
+  v_receipt_id := COALESCE(NEW.receipt_id, OLD.receipt_id);
+
+  SELECT purchase_order_id INTO v_receipt_po_id
+  FROM receipts
+  WHERE id = v_receipt_id;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM receipt_items
+    WHERE receipt_id = v_receipt_id
+      AND (
+        packing_slip_quantity <> ordered_quantity_snapshot
+        OR received_quantity <> packing_slip_quantity
+      )
+  ) INTO v_has_discrepancy;
+
+  UPDATE receipts
+  SET has_discrepancy = v_has_discrepancy
+  WHERE id = v_receipt_id;
+
+  PERFORM recalculate_purchase_order_status(v_receipt_po_id);
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE TRIGGER receipt_items_sync_receipt_and_po_status_insert
+  AFTER INSERT ON receipt_items
+  FOR EACH ROW EXECUTE FUNCTION sync_receipt_discrepancy_and_po_status();
+
+CREATE TRIGGER receipt_items_sync_receipt_and_po_status_update
+  AFTER UPDATE ON receipt_items
+  FOR EACH ROW EXECUTE FUNCTION sync_receipt_discrepancy_and_po_status();
+
+CREATE TRIGGER receipt_items_sync_receipt_and_po_status_delete
+  AFTER DELETE ON receipt_items
+  FOR EACH ROW EXECUTE FUNCTION sync_receipt_discrepancy_and_po_status();
+
+-- Confirmed receipts increase physical inventory
+CREATE OR REPLACE FUNCTION apply_confirmed_receipt_item_to_inventory()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_receipt RECORD;
+  v_project_label TEXT;
+  v_location_label TEXT;
+  v_existing_item RECORD;
+  v_new_quantity INTEGER;
+  v_new_status TEXT;
+BEGIN
+  SELECT * INTO v_receipt
+  FROM receipts
+  WHERE id = NEW.receipt_id;
+
+  IF v_receipt.status_value <> 'confirmed' THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT label INTO v_project_label
+  FROM projects
+  WHERE value = v_receipt.project_value;
+
+  SELECT label INTO v_location_label
+  FROM locations
+  WHERE value = v_receipt.location_value;
+
+  SELECT * INTO v_existing_item
+  FROM inventory_items
+  WHERE sku = NEW.sku
+    AND location_value = v_receipt.location_value
+    AND COALESCE(project, '') = COALESCE(v_project_label, '')
+  ORDER BY id
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_existing_item.id IS NULL THEN
+    v_new_quantity := NEW.received_quantity;
+    v_new_status := CASE
+      WHEN v_new_quantity <= 0 THEN 'Out of Stock'
+      WHEN v_new_quantity <= 10 THEN 'Low Stock'
+      ELSE 'Available'
+    END;
+
+    INSERT INTO inventory_items (
+      name, sku, quantity, unit, project,
+      location_value, location_detail, status, category, unit_cost
+    ) VALUES (
+      NEW.material_name,
+      NEW.sku,
+      NEW.received_quantity,
+      NEW.unit,
+      COALESCE(v_project_label, ''),
+      v_receipt.location_value,
+      COALESCE(v_location_label, v_receipt.location_value),
+      v_new_status,
+      NEW.category,
+      COALESCE((SELECT unit_cost FROM purchase_order_items WHERE id = NEW.purchase_order_item_id), 0)
+    );
+  ELSE
+    v_new_quantity := v_existing_item.quantity + NEW.received_quantity;
+    v_new_status := CASE
+      WHEN v_new_quantity <= 0 THEN 'Out of Stock'
+      WHEN v_new_quantity <= 10 THEN 'Low Stock'
+      ELSE 'Available'
+    END;
+
+    UPDATE inventory_items
+    SET quantity = v_new_quantity,
+        status = v_new_status
+    WHERE id = v_existing_item.id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE TRIGGER receipt_items_apply_to_inventory
+  AFTER INSERT ON receipt_items
+  FOR EACH ROW EXECUTE FUNCTION apply_confirmed_receipt_item_to_inventory();
+
+-- Receipt attachments: validate allowed target scope by attachment type
+CREATE OR REPLACE FUNCTION validate_receipt_attachment_scope()
+RETURNS TRIGGER AS $$
+BEGIN
+  CASE NEW.attachment_type
+    WHEN 'delivery_photo' THEN
+      IF NEW.receipt_item_id IS NOT NULL OR NEW.receipt_item_serial_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Delivery photos cannot be attached to a receipt item or serial entry.';
+      END IF;
+    WHEN 'item_photo' THEN
+      IF NEW.receipt_item_id IS NULL OR NEW.receipt_item_serial_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Item photos must belong to a receipt item and cannot target a serial entry.';
+      END IF;
+    WHEN 'label_photo' THEN
+      IF NEW.receipt_item_serial_id IS NULL THEN
+        RAISE EXCEPTION 'Label photos must belong to a receipt item serial entry.';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'Unsupported attachment type: %.', NEW.attachment_type;
+  END CASE;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER receipt_attachments_validate_scope
+  BEFORE INSERT OR UPDATE ON receipt_attachments
+  FOR EACH ROW EXECUTE FUNCTION validate_receipt_attachment_scope();
+
+-- Receipt attachments: ensure attachment targets belong to the same receipt
+CREATE OR REPLACE FUNCTION validate_receipt_attachment_receipt_consistency()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_item_receipt_id TEXT;
+  v_serial_receipt_id TEXT;
+BEGIN
+  IF NEW.receipt_item_id IS NOT NULL THEN
+    SELECT receipt_id INTO v_item_receipt_id
+    FROM receipt_items
+    WHERE id = NEW.receipt_item_id;
+
+    IF v_item_receipt_id IS NULL THEN
+      RAISE EXCEPTION 'Receipt item % does not exist.', NEW.receipt_item_id;
+    END IF;
+
+    IF v_item_receipt_id <> NEW.receipt_id THEN
+      RAISE EXCEPTION 'Attachment receipt does not match the selected receipt item.';
+    END IF;
+  END IF;
+
+  IF NEW.receipt_item_serial_id IS NOT NULL THEN
+    SELECT receipt_id INTO v_serial_receipt_id
+    FROM receipt_item_serials
+    WHERE id = NEW.receipt_item_serial_id;
+
+    IF v_serial_receipt_id IS NULL THEN
+      RAISE EXCEPTION 'Receipt item serial % does not exist.', NEW.receipt_item_serial_id;
+    END IF;
+
+    IF v_serial_receipt_id <> NEW.receipt_id THEN
+      RAISE EXCEPTION 'Attachment receipt does not match the selected serial entry.';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER receipt_attachments_validate_receipt_consistency
+  BEFORE INSERT OR UPDATE ON receipt_attachments
+  FOR EACH ROW EXECUTE FUNCTION validate_receipt_attachment_receipt_consistency();
+
+-- Receipt item serials: ensure serial entries inherit valid receipt / PO context
+CREATE OR REPLACE FUNCTION validate_receipt_item_serial_context()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_receipt_po_id TEXT;
+  v_receipt_project_value TEXT;
+  v_receipt_location_value TEXT;
+  v_receipt_item_receipt_id TEXT;
+  v_receipt_item_po_item_id INTEGER;
+BEGIN
+  SELECT purchase_order_id, project_value, location_value
+  INTO v_receipt_po_id, v_receipt_project_value, v_receipt_location_value
+  FROM receipts
+  WHERE id = NEW.receipt_id;
+
+  IF v_receipt_po_id IS NULL AND NEW.purchase_order_item_id IS NOT NULL THEN
+    RAISE EXCEPTION 'Manual receipts cannot attach purchase order item context to a serial entry.';
+  END IF;
+
+  SELECT receipt_id, purchase_order_item_id
+  INTO v_receipt_item_receipt_id, v_receipt_item_po_item_id
+  FROM receipt_items
+  WHERE id = NEW.receipt_item_id;
+
+  IF v_receipt_item_receipt_id IS NULL THEN
+    RAISE EXCEPTION 'Receipt item % does not exist.', NEW.receipt_item_id;
+  END IF;
+
+  IF v_receipt_item_receipt_id <> NEW.receipt_id THEN
+    RAISE EXCEPTION 'Serial entry receipt does not match the selected receipt item.';
+  END IF;
+
+  IF NEW.purchase_order_item_id IS NOT NULL THEN
+    IF v_receipt_item_po_item_id IS NOT NULL
+       AND NEW.purchase_order_item_id <> v_receipt_item_po_item_id THEN
+      RAISE EXCEPTION 'Serial entry purchase order item does not match the selected receipt item.';
+    END IF;
+  ELSIF v_receipt_item_po_item_id IS NOT NULL THEN
+    NEW.purchase_order_item_id := v_receipt_item_po_item_id;
+  END IF;
+
+  IF NEW.project_value IS NULL THEN
+    NEW.project_value := v_receipt_project_value;
+  END IF;
+
+  IF NEW.location_value IS NULL THEN
+    NEW.location_value := v_receipt_location_value;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER receipt_item_serials_validate_context
+  BEFORE INSERT OR UPDATE ON receipt_item_serials
+  FOR EACH ROW EXECUTE FUNCTION validate_receipt_item_serial_context();

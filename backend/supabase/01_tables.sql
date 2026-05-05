@@ -166,3 +166,108 @@ CREATE TABLE inventory_adjustments (
   adjusted_by       TEXT NOT NULL,                            -- username
   adjusted_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Purchase orders: planned inventory that has not physically arrived yet
+CREATE TABLE purchase_orders (
+  id                     TEXT PRIMARY KEY DEFAULT generate_purchase_order_id(),
+  po_number              TEXT NOT NULL,                       -- business-facing PO number
+  vendor                 TEXT NOT NULL,
+  status_value           TEXT NOT NULL DEFAULT 'entered' CHECK (status_value IN (
+    'entered', 'partially_received', 'received',
+    'closed_with_discrepancies', 'cancelled'
+  )),
+  expected_delivery_date DATE,
+  entered_by             TEXT NOT NULL,                       -- username
+  entered_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  location_value         TEXT REFERENCES locations(value),
+  project_value          TEXT REFERENCES projects(value),
+  notes                  TEXT NOT NULL DEFAULT '',
+  po_document_name       TEXT NOT NULL DEFAULT '',
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Purchase order items: line items on a purchase order
+CREATE TABLE purchase_order_items (
+  id                SERIAL PRIMARY KEY,
+  purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  line_number       INTEGER NOT NULL,
+  material_name     TEXT NOT NULL,
+  sku               TEXT NOT NULL,
+  category          TEXT NOT NULL,
+  ordered_quantity  INTEGER NOT NULL CHECK (ordered_quantity >= 0),
+  unit              TEXT NOT NULL,
+  unit_cost         NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (purchase_order_id, line_number)
+);
+
+-- Receipts: one record per receiving event / delivery
+CREATE TABLE receipts (
+  id                TEXT PRIMARY KEY DEFAULT generate_receipt_id(),
+  purchase_order_id TEXT REFERENCES purchase_orders(id),      -- nullable for manual receiving
+  vendor            TEXT NOT NULL,
+  po_number         TEXT NOT NULL,
+  delivery_date     DATE NOT NULL,
+  received_by       TEXT NOT NULL,                            -- username
+  location_value    TEXT REFERENCES locations(value),
+  project_value     TEXT REFERENCES projects(value),
+  status_value      TEXT NOT NULL DEFAULT 'confirmed' CHECK (status_value IN ('confirmed')),
+  has_discrepancy   BOOLEAN NOT NULL DEFAULT false,
+  notes             TEXT NOT NULL DEFAULT '',
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Receipt items: actual quantities received in a specific delivery
+CREATE TABLE receipt_items (
+  id                        SERIAL PRIMARY KEY,
+  receipt_id                TEXT NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+  purchase_order_item_id    INTEGER REFERENCES purchase_order_items(id), -- nullable for manual receiving
+  material_name             TEXT NOT NULL,
+  sku                       TEXT NOT NULL,
+  category                  TEXT NOT NULL,
+  ordered_quantity_snapshot INTEGER NOT NULL DEFAULT 0 CHECK (ordered_quantity_snapshot >= 0),
+  packing_slip_quantity     INTEGER NOT NULL DEFAULT 0 CHECK (packing_slip_quantity >= 0),
+  received_quantity         INTEGER NOT NULL DEFAULT 0 CHECK (received_quantity >= 0),
+  unit                      TEXT NOT NULL,
+  condition                 TEXT NOT NULL DEFAULT 'Good' CHECK (condition IN ('Good', 'Damaged', 'Partial')),
+  variance_reason           TEXT NOT NULL DEFAULT '',
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Receipt attachments: shared table for delivery, item, and label photos
+CREATE TABLE receipt_attachments (
+  id                     SERIAL PRIMARY KEY,
+  receipt_id             TEXT NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+  receipt_item_id        INTEGER REFERENCES receipt_items(id) ON DELETE CASCADE,
+  receipt_item_serial_id INTEGER,
+  attachment_type        TEXT NOT NULL CHECK (attachment_type IN (
+    'delivery_photo', 'item_photo', 'label_photo'
+  )),
+  file_name              TEXT NOT NULL,
+  file_path              TEXT NOT NULL,
+  content_type           TEXT NOT NULL DEFAULT '',
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Receipt item serials: one row per serialized unit received
+CREATE TABLE receipt_item_serials (
+  id                        SERIAL PRIMARY KEY,
+  receipt_id                TEXT NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+  receipt_item_id           INTEGER NOT NULL REFERENCES receipt_items(id) ON DELETE CASCADE,
+  purchase_order_item_id    INTEGER REFERENCES purchase_order_items(id),
+  project_value             TEXT REFERENCES projects(value),
+  location_value            TEXT REFERENCES locations(value),
+  serial_number             TEXT NOT NULL CHECK (btrim(serial_number) <> ''),
+  label_photo_attachment_id INTEGER,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (receipt_item_id, serial_number)
+);
+
+ALTER TABLE receipt_attachments
+  ADD CONSTRAINT receipt_attachments_serial_fk
+  FOREIGN KEY (receipt_item_serial_id) REFERENCES receipt_item_serials(id) ON DELETE CASCADE;
+
+ALTER TABLE receipt_item_serials
+  ADD CONSTRAINT receipt_item_serials_label_attachment_fk
+  FOREIGN KEY (label_photo_attachment_id) REFERENCES receipt_attachments(id) ON DELETE SET NULL;

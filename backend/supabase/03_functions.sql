@@ -128,6 +128,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
+-- Generate next purchase order ID (PO-1001, PO-1002, ...)
+CREATE OR REPLACE FUNCTION generate_purchase_order_id()
+RETURNS TEXT AS $$
+DECLARE next_num INTEGER;
+BEGIN
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM purchase_orders
+  WHERE id LIKE 'PO-%';
+  RETURN 'PO-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- Generate next receipt ID (RC-1001, RC-1002, ...)
+CREATE OR REPLACE FUNCTION generate_receipt_id()
+RETURNS TEXT AS $$
+DECLARE next_num INTEGER;
+BEGIN
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM receipts
+  WHERE id LIKE 'RC-%';
+  RETURN 'RC-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
 
 -- --------------------------------------------------------
 -- ATOMIC INVENTORY ADJUSTMENT (RPC)
@@ -212,3 +238,16 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
+
+-- Keep purchase order updated_at in sync
+CREATE OR REPLACE FUNCTION update_purchase_order_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER purchase_orders_set_updated_at
+  BEFORE UPDATE ON purchase_orders
+  FOR EACH ROW EXECUTE FUNCTION update_purchase_order_updated_at();
