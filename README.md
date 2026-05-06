@@ -35,7 +35,7 @@ By default the app runs with **mock data** — no backend setup needed.
 
 | Username | Password | Role |
 |----------|----------|------|
-| admin | admin123 | Admin |
+| admin | admin | Admin |
 | pm | pm123 | Project Manager |
 | wm | wm123 | Warehouse Manager |
 | la | la123 | Logistics Associate |
