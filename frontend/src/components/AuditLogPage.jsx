@@ -130,7 +130,7 @@ function AuditEventDetail({ event }) {
             ) : null}
 
             {event.variances && event.variances.length > 0 ? (
-                <div className="audit-log-detail-notes">
+                <div className="audit-log-detail-notes is-variance">
                     <span className="detail-label">Variance: </span>
                     <span className="detail-value">{event.variances.join("; ")}</span>
                 </div>
@@ -622,7 +622,11 @@ function AuditLogPage({ onBack }) {
                                                                 {event.summary || "-"}
                                                             </td>
                                                             <td
-                                                                className="col-notes"
+                                                                className={`col-notes${
+                                                                    event.variances && event.variances.length > 0
+                                                                        ? " is-variance"
+                                                                        : ""
+                                                                }`}
                                                                 title={event.notes || ""}
                                                             >
                                                                 {event.notes || ""}
