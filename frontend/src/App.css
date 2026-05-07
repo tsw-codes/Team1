@@ -2200,14 +2200,11 @@
 
 /* ===== Audit Log table ===== */
 .audit-log-content {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
+  width: 100%;
 }
 
 .audit-log-table-wrap {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2223,6 +2220,7 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  table-layout: auto;
 }
 
 .audit-log-table thead th {
@@ -2241,7 +2239,7 @@
 .audit-log-table tbody td {
   padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
+  vertical-align: middle;
   color: var(--text);
 }
 
@@ -2254,8 +2252,27 @@
   background: var(--read-only-bg, rgba(0, 0, 0, 0.03));
 }
 
-.audit-log-table tbody tr.selected {
-  background: rgba(47, 100, 150, 0.10);
+.audit-log-table tbody tr.expanded {
+  background: rgba(47, 100, 150, 0.08);
+}
+
+.audit-log-table .col-expand {
+  width: 28px;
+  padding-right: 0;
+  text-align: center;
+}
+
+.audit-log-chevron {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--text);
+  opacity: 0.55;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.audit-log-chevron.open {
+  transform: rotate(90deg);
+  opacity: 1;
 }
 
 .audit-log-table .col-time {
@@ -2279,10 +2296,47 @@
 
 .audit-log-table .col-summary,
 .audit-log-table .col-notes {
-  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.audit-log-table .col-summary {
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.audit-log-table .col-notes {
+  min-width: 180px;
+  max-width: 360px;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.audit-log-detail-row td {
+  background: rgba(47, 100, 150, 0.05);
+  border-bottom: 1px solid var(--border);
+  padding: 0.85rem 1rem 1rem 2.25rem;
+  cursor: default;
+}
+
+.audit-log-detail-row:hover td {
+  background: rgba(47, 100, 150, 0.05);
+}
+
+.audit-log-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.4rem 1.25rem;
+  font-size: 0.85rem;
+}
+
+.audit-log-detail-notes {
+  grid-column: 1 / -1;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border);
+  margin-top: 0.4rem;
+  white-space: normal;
 }
 
 .audit-log-empty-row td {
@@ -2292,32 +2346,10 @@
   opacity: 0.6;
 }
 
-.audit-log-detail-panel {
-  flex: 0 0 360px;
-  position: sticky;
-  top: 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1rem;
-  max-height: calc(100vh - 320px);
-  overflow: auto;
-}
-
-@media (max-width: 900px) {
-  .audit-log-content {
-    flex-direction: column;
-  }
-  .audit-log-detail-panel {
-    flex: 1 1 auto;
-    width: 100%;
-    position: static;
-  }
-  .audit-log-table .col-notes {
+@media (max-width: 1100px) {
+  .audit-log-table .col-notes,
+  .audit-log-table thead th.col-notes {
     display: none;
-  }
-  .audit-log-table .col-summary {
-    max-width: 160px;
   }
 }
 
@@ -2415,7 +2447,6 @@
 
 /* ===== Audit Log: dark theme overrides ===== */
 :root[data-theme="dark"] .audit-log-table-wrap,
-:root[data-theme="dark"] .audit-log-detail-panel,
 :root[data-theme="dark"] .audit-log-row-mobile,
 :root[data-theme="dark"] .audit-log-empty {
   color: #1f2937;
@@ -2423,6 +2454,14 @@
 
 :root[data-theme="dark"] .audit-log-table thead th,
 :root[data-theme="dark"] .audit-log-table tbody td {
+  color: #1f2937;
+}
+
+:root[data-theme="dark"] .audit-log-detail-row td {
+  color: #1f2937;
+}
+
+:root[data-theme="dark"] .audit-log-chevron {
   color: #1f2937;
 }
 
