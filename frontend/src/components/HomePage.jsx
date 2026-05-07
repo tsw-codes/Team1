@@ -65,7 +65,11 @@ function HomePage({ name, permissions, onOpenPage }) {
             : action
     )
 
-    const allowedActions = actionsWithBadges.filter((action) =>
+    const flatActions = isAdminUser
+        ? actionsWithBadges
+        : [...actionsWithBadges, ...adminToolActions]
+
+    const allowedActions = flatActions.filter((action) =>
         permissions.includes(action.permission)
     )
 

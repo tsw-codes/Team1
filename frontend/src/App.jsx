@@ -480,7 +480,7 @@ function App() {
                 <Route
                   path='/receive-inventory'
                   element={
-                    isLoggedIn ? (
+                    isLoggedIn && permissions.includes("receive_inventory") ? (
                       <PageTransition direction={navDirection}>
                         <ReceiveInventoryPage
                           onBack={handleGoHome}
@@ -497,7 +497,7 @@ function App() {
                 <Route
                   path='/request-material'
                   element={
-                    isLoggedIn ? (
+                    isLoggedIn && permissions.includes("request_material") ? (
                       <PageTransition direction={navDirection}>
                         <RequestMaterialPage
                           onBack={handleGoHome}
@@ -513,7 +513,7 @@ function App() {
                 <Route
                   path='/manifest-inventory'
                   element={
-                    isLoggedIn ? (
+                    isLoggedIn && permissions.includes("manifest_inventory") ? (
                       <PageTransition direction={navDirection}>
                         <ManifestInventoryPage
                           onBack={handleGoHome}
@@ -530,7 +530,7 @@ function App() {
                 <Route
                   path='/transfer-inventory'
                   element={
-                    isLoggedIn ? (
+                    isLoggedIn && permissions.includes("transfer_inventory") ? (
                       <PageTransition direction={navDirection}>
                         <TransferInventoryPage
                           onBack={handleGoHome}
@@ -547,7 +547,7 @@ function App() {
                 <Route
                   path='/pending-requests'
                   element={
-                    isLoggedIn ? (
+                    isLoggedIn && permissions.includes("approve_requests") ? (
                       <PageTransition direction={navDirection}>
                         <PendingRequestsPage
                           onBack={handleGoHome}
