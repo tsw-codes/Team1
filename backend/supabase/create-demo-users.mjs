@@ -25,6 +25,7 @@ const users = [
   { email: 'wm@coolsys.com',    password: 'wm123',    username: 'wm',    name: 'Warehouse Manager',    role: 'warehouseManager' },
   { email: 'la@coolsys.com',    password: 'la123',    username: 'la',    name: 'Logistics Associate',  role: 'logisticsAssociate' },
   { email: 'lf@coolsys.com',    password: 'lf123',    username: 'lf',    name: 'Logistics Foreman',    role: 'logisticsForeman' },
+  { email: 'viewer@coolsys.com', password: 'viewer123', username: 'viewer', name: 'Demo Viewer',         role: 'readonly' },
 ]
 
 async function createUsers() {

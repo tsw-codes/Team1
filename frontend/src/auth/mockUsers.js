@@ -34,4 +34,11 @@ export const mockUsers = [
         name: "Logistics Foreman",
         role: "logisticsForeman",
     },
+    {
+        id: 6,
+        username: "viewer",
+        password: "viewer",
+        name: "Demo Viewer",
+        role: "readonly",
+    },
 ]
