@@ -2478,3 +2478,40 @@
 :root[data-theme="dark"] .filter-date-label input[type="date"] {
   color: #1f2937;
 }
+
+/* ===== Audit Log: variance highlight ===== */
+.audit-log-table .col-notes.is-variance {
+  color: #b45309;
+  font-style: normal;
+  font-weight: 500;
+  opacity: 1;
+}
+
+.audit-log-detail-notes.is-variance {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  border-top: none;
+  border-left: 3px solid #b45309;
+  margin-top: 0.4rem;
+}
+
+.audit-log-detail-notes.is-variance .detail-label {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.audit-log-detail-notes.is-variance .detail-value {
+  color: #b45309;
+}
+
+:root[data-theme="dark"] .audit-log-table .col-notes.is-variance {
+  color: #b45309;
+}
+
+:root[data-theme="dark"] .audit-log-detail-notes.is-variance,
+:root[data-theme="dark"] .audit-log-detail-notes.is-variance .detail-label,
+:root[data-theme="dark"] .audit-log-detail-notes.is-variance .detail-value {
+  color: #b45309;
+}
