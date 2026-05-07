@@ -2197,3 +2197,245 @@
     padding: 0.85rem;
   }
 }
+
+/* ===== Audit Log table ===== */
+.audit-log-content {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.audit-log-table-wrap {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.audit-log-table-scroll {
+  max-height: calc(100vh - 320px);
+  overflow: auto;
+}
+
+.audit-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.audit-log-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-muted, var(--surface));
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-weight: 600;
+  padding: 0.6rem 0.75rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.audit-log-table tbody td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text);
+}
+
+.audit-log-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.audit-log-table tbody tr:hover {
+  background: var(--read-only-bg, rgba(0, 0, 0, 0.03));
+}
+
+.audit-log-table tbody tr.selected {
+  background: rgba(47, 100, 150, 0.10);
+}
+
+.audit-log-table .col-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.audit-log-table .col-actor {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.audit-log-table .col-entity {
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.audit-log-table .col-summary,
+.audit-log-table .col-notes {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-log-empty-row td {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text);
+  opacity: 0.6;
+}
+
+.audit-log-detail-panel {
+  flex: 0 0 360px;
+  position: sticky;
+  top: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  max-height: calc(100vh - 320px);
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .audit-log-content {
+    flex-direction: column;
+  }
+  .audit-log-detail-panel {
+    flex: 1 1 auto;
+    width: 100%;
+    position: static;
+  }
+  .audit-log-table .col-notes {
+    display: none;
+  }
+  .audit-log-table .col-summary {
+    max-width: 160px;
+  }
+}
+
+/* ===== Audit Log mobile rows ===== */
+.audit-log-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.audit-log-row-mobile {
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-family: inherit;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.audit-log-row-mobile.selected {
+  background: rgba(47, 100, 150, 0.10);
+  border-left-color: #2f6496;
+}
+
+.audit-log-row-mobile-top,
+.audit-log-row-mobile-mid {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.audit-log-row-mobile-time {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.audit-log-row-mobile-actor {
+  font-weight: 600;
+}
+
+.audit-log-row-mobile-entity {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.audit-log-row-mobile-summary {
+  font-size: 0.85rem;
+}
+
+.audit-log-row-mobile-notes {
+  font-size: 0.78rem;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.audit-log-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text);
+  opacity: 0.6;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.filter-date-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.filter-date-label input[type="date"] {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* ===== Audit Log: dark theme overrides ===== */
+:root[data-theme="dark"] .audit-log-table-wrap,
+:root[data-theme="dark"] .audit-log-detail-panel,
+:root[data-theme="dark"] .audit-log-row-mobile,
+:root[data-theme="dark"] .audit-log-empty {
+  color: #1f2937;
+}
+
+:root[data-theme="dark"] .audit-log-table thead th,
+:root[data-theme="dark"] .audit-log-table tbody td {
+  color: #1f2937;
+}
+
+:root[data-theme="dark"] .audit-log-row-mobile-time,
+:root[data-theme="dark"] .audit-log-row-mobile-entity,
+:root[data-theme="dark"] .audit-log-row-mobile-notes {
+  color: #374151;
+}
+
+:root[data-theme="dark"] .filter-date-label {
+  color: #1f2937;
+}
+
+:root[data-theme="dark"] .filter-date-label input[type="date"] {
+  color: #1f2937;
+}

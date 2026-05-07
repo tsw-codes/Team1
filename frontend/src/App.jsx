@@ -17,6 +17,7 @@ import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
 import EnterPurchaseOrderPage from './components/EnterPurchaseOrderPage'
 import ManageLocationsPage from './components/ManageLocationsPage'
+import AuditLogPage from './components/AuditLogPage'
 import NotFoundPage from './components/NotFoundPage'
 
 import { getPermissionsForRole } from './auth/permissions'
@@ -581,6 +582,21 @@ function App() {
                     isLoggedIn && permissions.includes("manage_locations") ? (
                       <PageTransition direction={navDirection}>
                         <ManageLocationsPage
+                          onBack={handleGoHome}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route
+                  path='/audit-log'
+                  element={
+                    isLoggedIn && permissions.includes("view_audit_log") ? (
+                      <PageTransition direction={navDirection}>
+                        <AuditLogPage
                           onBack={handleGoHome}
                         />
                       </PageTransition>
