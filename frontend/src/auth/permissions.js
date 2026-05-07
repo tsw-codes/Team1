@@ -81,6 +81,13 @@ export const rolePermissions = {
         "request_material",
         "track_shipment",
     ],
+
+    readonly: [
+        "view_inventory",
+        "view_material_cost",
+        "track_shipment",
+        "view_audit_log",
+    ],
 }
 
 export function getPermissionsForRole(role) {

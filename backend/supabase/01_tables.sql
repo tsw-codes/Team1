@@ -30,7 +30,7 @@ CREATE TABLE profiles (
   name       TEXT NOT NULL,                                   -- 'Admin User'
   role       TEXT NOT NULL CHECK (role IN (
     'admin', 'projectManager', 'warehouseManager',
-    'logisticsAssociate', 'logisticsForeman'
+    'logisticsAssociate', 'logisticsForeman', 'readonly'
   )),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
