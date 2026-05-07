@@ -30,6 +30,7 @@ export const rolePermissions = {
         "manage_users",
         "manage_locations",
         "manage_projects",
+        "view_audit_log",
     ],
 
     projectManager: [

@@ -31,7 +31,7 @@ export async function authenticateUser(username, password) {
     return user ? { id: user.id, username: user.username, name: user.name, role: user.role } : null
   }
 
-  const email = `${username}@${EMAIL_DOMAIN}`
+  const email = username.includes('@') ? username : `${username}@${EMAIL_DOMAIN}`
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email,

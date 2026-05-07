@@ -98,4 +98,12 @@ export const adminToolActions = [
     path: "/manage-projects",
     permission: "manage_projects",
   },
+  {
+    key: "audit_log",
+    title: "Audit Log",
+    description: "Review every state change across the system.",
+    icon: "📜",
+    path: "/audit-log",
+    permission: "view_audit_log",
+  },
 ]
