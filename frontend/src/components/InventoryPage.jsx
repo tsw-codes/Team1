@@ -283,11 +283,13 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
         return inventoryData.filter((item) => {
             const search = searchTerm.toLowerCase()
 
-            const matchesSearch = 
+            const matchesSearch =
                 item.name.toLowerCase().includes(search) ||
                 item.sku.toLowerCase().includes(search) ||
                 item.project.toLowerCase().includes(search) ||
-                item.location.toLowerCase().includes(search)
+                item.location.toLowerCase().includes(search) ||
+                String(item.locationValue || "").toLowerCase().includes(search) ||
+                String(item.projectValue || "").toLowerCase().includes(search)
 
             const matchesProject = projectFilter === "All" || item.project === projectFilter
             const matchesCategory = categoryFilter === "All" || item.category === categoryFilter
@@ -442,7 +444,7 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
                     <input 
                         type="text"
                         className="inventory-search"
-                        placeholder="Search by material, SKU, project, or location..."
+                        placeholder="Search by material, SKU, project, location, or code (e.g. WH-A, SG)..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
