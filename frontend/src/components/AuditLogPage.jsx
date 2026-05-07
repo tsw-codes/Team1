@@ -129,7 +129,12 @@ function AuditEventDetail({ event }) {
                 </>
             ) : null}
 
-            {event.notes ? (
+            {event.variances && event.variances.length > 0 ? (
+                <div className="audit-log-detail-notes">
+                    <span className="detail-label">Variance: </span>
+                    <span className="detail-value">{event.variances.join("; ")}</span>
+                </div>
+            ) : event.notes ? (
                 <div className="audit-log-detail-notes">
                     <span className="detail-label">Notes: </span>
                     <span className="detail-value">{event.notes}</span>
