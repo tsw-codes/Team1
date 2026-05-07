@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { formatAuditTimestamp } from "../utils/dateUtils"
 import {
     getAuditEvents,
@@ -27,14 +27,8 @@ function toLocalDateInputValue(date) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-function AuditLogDetail({ event, onClose }) {
-    if (!event) {
-        return (
-            <div className="detail-panel-empty">
-                <p>Select an audit event to view more details.</p>
-            </div>
-        )
-    }
+function AuditEventDetail({ event }) {
+    if (!event) return null
 
     const adj = event.related?.adjustment
     const req = event.related?.request
@@ -42,113 +36,106 @@ function AuditLogDetail({ event, onClose }) {
     const transfer = event.related?.transfer
 
     return (
-        <>
-            <div className="detail-panel-header">
-                <h2 className="detail-panel-title">Audit Event</h2>
-                <button className="link-button" type="button" onClick={onClose}>
-                    Close
-                </button>
+        <div className="audit-log-detail-grid">
+            <div>
+                <span className="detail-label">When: </span>
+                <span className="detail-value">
+                    {event.at ? formatAuditTimestamp(event.at) : "-"}
+                </span>
+            </div>
+            <div>
+                <span className="detail-label">Who: </span>
+                <span className="detail-value">{event.actor || "-"}</span>
+            </div>
+            <div>
+                <span className="detail-label">Action: </span>
+                <span className="detail-value">{getActionLabel(event.action)}</span>
+            </div>
+            <div>
+                <span className="detail-label">Entity: </span>
+                <span className="detail-value">
+                    {event.entityType}: {event.entityId}
+                </span>
+            </div>
+            <div>
+                <span className="detail-label">Summary: </span>
+                <span className="detail-value">{event.summary || "-"}</span>
             </div>
 
-            <h3 className="detail-panel-subtitle">{getActionLabel(event.action)}</h3>
-            <p className="detail-panel-meta">
-                {event.entityType}: {event.entityId}
-            </p>
-            <span className={getActionBadgeClass(event.action)}>
-                {getActionGroup(event.action)}
-            </span>
+            {event.action === "inventory_adjusted" && adj ? (
+                <>
+                    <div>
+                        <span className="detail-label">Adjustment Type: </span>
+                        <span className="detail-value">{adj.adjustmentType}</span>
+                    </div>
+                    <div>
+                        <span className="detail-label">Quantity Change: </span>
+                        <span className="detail-value">
+                            {event.qtyChange > 0 ? "+" : ""}
+                            {event.qtyChange}
+                        </span>
+                    </div>
+                    <div>
+                        <span className="detail-label">Before → After: </span>
+                        <span className="detail-value">
+                            {adj.previousQuantity} → {adj.newQuantity}
+                        </span>
+                    </div>
+                </>
+            ) : null}
 
-            <div className="detail-panel-section">
-                <div>
-                    <span className="detail-label">When: </span>
-                    <span className="detail-value">
-                        {event.at ? formatAuditTimestamp(event.at) : "-"}
-                    </span>
-                </div>
-                <div>
-                    <span className="detail-label">Who: </span>
-                    <span className="detail-value">{event.actor || "-"}</span>
-                </div>
-                <div>
-                    <span className="detail-label">Summary: </span>
-                    <span className="detail-value">{event.summary || "-"}</span>
-                </div>
+            {req ? (
+                <>
+                    <div>
+                        <span className="detail-label">Request ID: </span>
+                        <span className="detail-value">{req.id}</span>
+                    </div>
+                    {req.project ? (
+                        <div>
+                            <span className="detail-label">Project: </span>
+                            <span className="detail-value">{req.project}</span>
+                        </div>
+                    ) : null}
+                </>
+            ) : null}
 
-                {event.action === "inventory_adjusted" && adj ? (
-                    <>
+            {manifest ? (
+                <>
+                    <div>
+                        <span className="detail-label">Manifest ID: </span>
+                        <span className="detail-value">{manifest.id}</span>
+                    </div>
+                    {manifest.requestId ? (
                         <div>
-                            <span className="detail-label">Adjustment Type: </span>
-                            <span className="detail-value">{adj.adjustmentType}</span>
+                            <span className="detail-label">From Request: </span>
+                            <span className="detail-value">{manifest.requestId}</span>
                         </div>
-                        <div>
-                            <span className="detail-label">Quantity Change: </span>
-                            <span className="detail-value">
-                                {event.qtyChange > 0 ? "+" : ""}
-                                {event.qtyChange}
-                            </span>
-                        </div>
-                        <div>
-                            <span className="detail-label">Before → After: </span>
-                            <span className="detail-value">
-                                {adj.previousQuantity} → {adj.newQuantity}
-                            </span>
-                        </div>
-                    </>
-                ) : null}
+                    ) : null}
+                </>
+            ) : null}
 
-                {req ? (
-                    <>
+            {transfer ? (
+                <>
+                    <div>
+                        <span className="detail-label">Transfer ID: </span>
+                        <span className="detail-value">{transfer.id}</span>
+                    </div>
+                    {transfer.manifestId ? (
                         <div>
-                            <span className="detail-label">Request ID: </span>
-                            <span className="detail-value">{req.id}</span>
+                            <span className="detail-label">From Manifest: </span>
+                            <span className="detail-value">{transfer.manifestId}</span>
                         </div>
-                        {req.project ? (
-                            <div>
-                                <span className="detail-label">Project: </span>
-                                <span className="detail-value">{req.project}</span>
-                            </div>
-                        ) : null}
-                    </>
-                ) : null}
-
-                {manifest ? (
-                    <>
-                        <div>
-                            <span className="detail-label">Manifest ID: </span>
-                            <span className="detail-value">{manifest.id}</span>
-                        </div>
-                        {manifest.requestId ? (
-                            <div>
-                                <span className="detail-label">From Request: </span>
-                                <span className="detail-value">{manifest.requestId}</span>
-                            </div>
-                        ) : null}
-                    </>
-                ) : null}
-
-                {transfer ? (
-                    <>
-                        <div>
-                            <span className="detail-label">Transfer ID: </span>
-                            <span className="detail-value">{transfer.id}</span>
-                        </div>
-                        {transfer.manifestId ? (
-                            <div>
-                                <span className="detail-label">From Manifest: </span>
-                                <span className="detail-value">{transfer.manifestId}</span>
-                            </div>
-                        ) : null}
-                    </>
-                ) : null}
-            </div>
+                    ) : null}
+                </>
+            ) : null}
 
             {event.notes ? (
-                <div className="detail-panel-section">
-                    <h4 className="detail-panel-section-title">Notes</h4>
-                    <p className="detail-panel-text">{event.notes}</p>
+                <div className="audit-log-detail-notes">
+                    <span className="detail-label">Notes: </span>
+                    <span className="detail-value">{event.notes}</span>
                 </div>
             ) : null}
-        </>
+        </div>
     )
 }
 
@@ -157,7 +144,17 @@ function AuditLogModal({ event, onClose }) {
     return (
         <div className="inventory-modal-overlay" onClick={onClose}>
             <div className="inventory-modal-card" onClick={(e) => e.stopPropagation()}>
-                <AuditLogDetail event={event} onClose={onClose} />
+                <div className="detail-panel-header">
+                    <h2 className="detail-panel-title">Audit Event</h2>
+                    <button className="link-button" type="button" onClick={onClose}>
+                        Close
+                    </button>
+                </div>
+                <h3 className="detail-panel-subtitle">{getActionLabel(event.action)}</h3>
+                <span className={getActionBadgeClass(event.action)}>
+                    {getActionGroup(event.action)}
+                </span>
+                <AuditEventDetail event={event} />
             </div>
         </div>
     )
@@ -175,7 +172,8 @@ function AuditLogPage({ onBack }) {
     const [fromDate, setFromDate] = useState("")
     const [toDate, setToDate] = useState("")
 
-    const [selectedEvent, setSelectedEvent] = useState(null)
+    const [expandedEventId, setExpandedEventId] = useState(null)
+    const [mobileEvent, setMobileEvent] = useState(null)
     const [auditVersion, setAuditVersion] = useState(0)
 
     const { data: events, loading, error } = useAsyncData(
@@ -204,16 +202,6 @@ function AuditLogPage({ onBack }) {
             unsubscribeTransfers()
         }
     }, [])
-
-    useEffect(() => {
-        if (!selectedEvent) return
-        const refreshed = (events ?? []).find((e) => e.id === selectedEvent.id) || null
-        if (!refreshed) {
-            setSelectedEvent(null)
-        } else if (refreshed !== selectedEvent) {
-            setSelectedEvent(refreshed)
-        }
-    }, [events, selectedEvent])
 
     const filterOptions = useMemo(() => {
         return {
@@ -305,6 +293,14 @@ function AuditLogPage({ onBack }) {
         dateBounds,
     ])
 
+    function handleRowClick(event) {
+        if (isMobile) {
+            setMobileEvent(event)
+            return
+        }
+        setExpandedEventId((prev) => (prev === event.id ? null : event.id))
+    }
+
     function handleClearFilters() {
         setSearchTerm("")
         setActionFilter("All")
@@ -369,13 +365,12 @@ function AuditLogPage({ onBack }) {
     const { actions, actors, entityTypes } = filterOptions
 
     function renderEventRowMobile(event) {
-        const isSelected = selectedEvent?.id === event.id
         return (
             <button
                 key={event.id}
                 type="button"
-                className={`audit-log-row-mobile ${isSelected ? "selected" : ""}`}
-                onClick={() => setSelectedEvent(event)}
+                className="audit-log-row-mobile"
+                onClick={() => setMobileEvent(event)}
             >
                 <div className="audit-log-row-mobile-top">
                     <span className="audit-log-row-mobile-time">
@@ -558,6 +553,7 @@ function AuditLogPage({ onBack }) {
                                 <table className="audit-log-table">
                                     <thead>
                                         <tr>
+                                            <th className="col-expand"></th>
                                             <th className="col-time">Time</th>
                                             <th className="col-actor">Who</th>
                                             <th>Action</th>
@@ -569,76 +565,86 @@ function AuditLogPage({ onBack }) {
                                     <tbody>
                                         {filteredEvents.length === 0 ? (
                                             <tr className="audit-log-empty-row">
-                                                <td colSpan={6}>
+                                                <td colSpan={7}>
                                                     No events match the current filters.
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredEvents.map((event) => (
-                                                <tr
-                                                    key={event.id}
-                                                    className={
-                                                        selectedEvent?.id === event.id
-                                                            ? "selected"
-                                                            : ""
-                                                    }
-                                                    onClick={() => setSelectedEvent(event)}
-                                                >
-                                                    <td className="col-time">
-                                                        {event.at
-                                                            ? formatAuditTimestamp(event.at)
-                                                            : "-"}
-                                                    </td>
-                                                    <td className="col-actor">
-                                                        {event.actor || "-"}
-                                                    </td>
-                                                    <td>
-                                                        <span
-                                                            className={getActionBadgeClass(
-                                                                event.action
-                                                            )}
+                                            filteredEvents.map((event) => {
+                                                const isExpanded = expandedEventId === event.id
+                                                return (
+                                                    <Fragment key={event.id}>
+                                                        <tr
+                                                            className={
+                                                                isExpanded ? "expanded" : ""
+                                                            }
+                                                            onClick={() => handleRowClick(event)}
                                                         >
-                                                            {getActionLabel(event.action)}
-                                                        </span>
-                                                    </td>
-                                                    <td className="col-entity">
-                                                        {event.entityType}: {event.entityId}
-                                                    </td>
-                                                    <td
-                                                        className="col-summary"
-                                                        title={event.summary || ""}
-                                                    >
-                                                        {event.summary || "-"}
-                                                    </td>
-                                                    <td
-                                                        className="col-notes"
-                                                        title={event.notes || ""}
-                                                    >
-                                                        {event.notes || ""}
-                                                    </td>
-                                                </tr>
-                                            ))
+                                                            <td className="col-expand">
+                                                                <span
+                                                                    className={`audit-log-chevron ${
+                                                                        isExpanded ? "open" : ""
+                                                                    }`}
+                                                                    aria-hidden="true"
+                                                                >
+                                                                    ▶
+                                                                </span>
+                                                            </td>
+                                                            <td className="col-time">
+                                                                {event.at
+                                                                    ? formatAuditTimestamp(event.at)
+                                                                    : "-"}
+                                                            </td>
+                                                            <td className="col-actor">
+                                                                {event.actor || "-"}
+                                                            </td>
+                                                            <td>
+                                                                <span
+                                                                    className={getActionBadgeClass(
+                                                                        event.action
+                                                                    )}
+                                                                >
+                                                                    {getActionLabel(event.action)}
+                                                                </span>
+                                                            </td>
+                                                            <td className="col-entity">
+                                                                {event.entityType}: {event.entityId}
+                                                            </td>
+                                                            <td
+                                                                className="col-summary"
+                                                                title={event.summary || ""}
+                                                            >
+                                                                {event.summary || "-"}
+                                                            </td>
+                                                            <td
+                                                                className="col-notes"
+                                                                title={event.notes || ""}
+                                                            >
+                                                                {event.notes || ""}
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded ? (
+                                                            <tr className="audit-log-detail-row">
+                                                                <td colSpan={7}>
+                                                                    <AuditEventDetail event={event} />
+                                                                </td>
+                                                            </tr>
+                                                        ) : null}
+                                                    </Fragment>
+                                                )
+                                            })
                                         )}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     )}
-
-                    {!isMobile && (
-                        <aside className="audit-log-detail-panel">
-                            <AuditLogDetail
-                                event={selectedEvent}
-                                onClose={() => setSelectedEvent(null)}
-                            />
-                        </aside>
-                    )}
                 </section>
 
                 {isMobile && (
                     <AuditLogModal
-                        event={selectedEvent}
-                        onClose={() => setSelectedEvent(null)}
+                        event={mobileEvent}
+                        onClose={() => setMobileEvent(null)}
                     />
                 )}
             </div>
