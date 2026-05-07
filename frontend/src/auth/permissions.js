@@ -40,6 +40,7 @@ export const rolePermissions = {
         "upload_purchase_orders",
         "match_purchase_orders",
         "track_shipment",
+        "manage_projects",
     ],
 
     warehouseManager: [

@@ -2,7 +2,10 @@ import { useRef, useState } from "react"
 import { useAsyncData } from "../hooks/useAsyncData"
 import { createAuditTimestamp } from "../utils/dateUtils"
 import { buildRequestPayload, createRequest } from "../services/requestService"
-import { getRequestableInventoryForWarehouse } from "../services/inventoryService"
+import {
+    getAvailableInventoryQuantity,
+    getRequestableInventoryForWarehouse,
+} from "../services/inventoryService"
 import {
     getSiteLocationOptions,
     getWarehouseLocationOptions,
@@ -309,7 +312,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
 
             if (
                 selectedInventory &&
-                Number(item.requestedQuantity) > Number(selectedInventory.quantity)
+                Number(item.requestedQuantity) > getAvailableInventoryQuantity(selectedInventory)
             ) {
                 errors.requestedQuantity = "Requested quantity exceeds available inventory."
             }
@@ -586,6 +589,9 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                     const selectedInventory = inventoryOptions.find(
                                         (inventoryItem) => String(inventoryItem.id) === String(item.inventoryItemId)
                                     ) || null
+                                    const availableQuantity = selectedInventory
+                                        ? getAvailableInventoryQuantity(selectedInventory)
+                                        : ""
 
                                     const selectedInventoryIds = requestedItems
                                         .filter((requestItem) => requestItem.id !== item.id && requestItem.inventoryItemId)
@@ -671,7 +677,7 @@ function RequestMaterialPage({ onBack, currentUser }) {
                                                     <input 
                                                         className="form-input read-only-input"
                                                         type="text"
-                                                        value={selectedInventory?.quantity ?? ""}
+                                                        value={availableQuantity}
                                                         readOnly
                                                     />
                                                 </label>

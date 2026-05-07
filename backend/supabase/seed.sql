@@ -26,14 +26,18 @@ ALTER TABLE inventory_adjustments DISABLE TRIGGER adjustments_validate_role;
 -- 1. LOCATIONS
 -- ============================================================
 
-INSERT INTO locations (value, label, type) VALUES
-  ('WH-A', 'Warehouse A',    'warehouse'),
-  ('WH-B', 'Warehouse B',    'warehouse'),
-  ('WH-C', 'Warehouse C',    'warehouse'),
-  ('SG',   'South Garage',   'site'),
-  ('WT',   'West Tower',     'site'),
-  ('CO',   'Central Office', 'site'),
-  ('NA',   'North Annex',    'site');
+INSERT INTO locations (
+  value, label, type,
+  address_line_1, address_line_2, city, state, postal_code,
+  poc_name, poc_phone, poc_email
+) VALUES
+  ('WH-A', 'Warehouse A',    'warehouse', '101 Industrial Way', '',               'Dallas',     'TX', '75201', 'Morgan Lee',   '214-555-0101', 'morgan.lee@coolsys.com'),
+  ('WH-B', 'Warehouse B',    'warehouse', '245 Service Road',  'Suite 4',        'Fort Worth', 'TX', '76102', 'Avery Carter', '817-555-0112', 'avery.carter@coolsys.com'),
+  ('WH-C', 'Warehouse C',    'warehouse', '78 Logistics Ave',  '',               'Arlington',  'TX', '76010', 'Jordan Price', '682-555-0188', 'jordan.price@coolsys.com'),
+  ('SG',   'South Garage',   'site',      '8900 South Loop',   'Trailer Office', 'Dallas',     'TX', '75215', 'Taylor Nguyen','214-555-0134', 'taylor.nguyen@coolsys.com'),
+  ('WT',   'West Tower',     'site',      '500 Commerce St',   'Floor 3',        'Fort Worth', 'TX', '76104', 'Riley Brooks', '817-555-0146', 'riley.brooks@coolsys.com'),
+  ('CO',   'Central Office', 'site',      '1200 Main Street',  '',               'Dallas',     'TX', '75202', 'Casey Morgan', '214-555-0157', 'casey.morgan@coolsys.com'),
+  ('NA',   'North Annex',    'site',      '3100 North Avenue', 'Building B',     'Plano',      'TX', '75074', 'Jamie Flores', '972-555-0169', 'jamie.flores@coolsys.com');
 
 
 -- ============================================================
@@ -57,18 +61,18 @@ INSERT INTO projects (value, label, location_value) VALUES
 -- ============================================================
 -- total_cost is auto-computed by trigger (quantity * unit_cost)
 
-INSERT INTO inventory_items (id, name, sku, quantity, unit, project, location_value, location_detail, status, category, unit_cost) VALUES
-  (1,  'Copper Pipe 3/4"',       'CP-075',  120, 'ft',    'Warehouse Stock',  'WH-A', 'Warehouse A / Rack 3',         'Available',    'Plumbing',   1.21),
-  (2,  'Steel Duct Connector',   'SDC-210',  16, 'pcs',   'Warehouse Stock',  'WH-B', 'Warehouse B / Shelf 2',        'Available',    'HVAC',       8.50),
-  (3,  'Electrical Conduit 1 in','EC-100',   48, 'pcs',   'Warehouse Stock',  'WH-A', 'Warehouse A / Rack 1',         'Reserved',     'Electrical', 12.75),
-  (4,  'Air Diffuser 24x24',     'AD-2424',  22, 'pcs',   'Warehouse Stock',  'WH-C', 'Warehouse C / Bay 4',          'Available',    'HVAC',      42.00),
-  (5,  'Ball Valve 2 in',        'BV-200',    7, 'pcs',   'Warehouse Stock',  'WH-A', 'Warehouse A / Bin 8',          'Low Stock',    'Plumbing',  31.50),
-  (6,  'Breaker Panel 200A',     'BP-200A',   9, 'pcs',   'Warehouse Stock',  'WH-C', 'Warehouse C / Secure Cage',    'Available',    'Electrical',185.00),
-  (7,  'Flexible Duct 8 in',     'FD-800',    0, 'rolls', 'Warehouse Stock',  'WH-B', 'Warehouse B / Rack 6',         'Out of Stock', 'HVAC',      56.00),
-  (8,  'Threaded Rod 1/2 in',    'TR-050',   85, 'pcs',   'Warehouse Stock',  'WH-A', 'Warehouse A / Rack 5',         'Available',    'Hardware',    2.10),
-  (9,  'Copper Elbow 3/4 in',    'CE-075',   12, 'pcs',   'South Garage',     'SG',   'South Garage / Storage Container', 'Available', 'Plumbing',   4.25),
-  (10, 'Lighting Control Panel', 'LCP-01',    1, 'pcs',   'West Tower',       'WT',   'West Tower / Electrical Room', 'Available',    'Electrical',950.00),
-  (11, 'VAV Box',                'VAV-440',   2, 'pcs',   'Central Office',   'CO',   'In Transit',                   'In Transit',   'HVAC',     225.00);
+INSERT INTO inventory_items (id, name, sku, quantity, unit, project, project_value, location_value, location_detail, status, category, unit_cost) VALUES
+  (1,  'Copper Pipe 3/4"',       'CP-075',  120, 'ft',    'Warehouse Stock',          'WH-A-001', 'WH-A', 'Warehouse A / Rack 3',               'Available',    'Plumbing',   1.21),
+  (2,  'Steel Duct Connector',   'SDC-210',  16, 'pcs',   'Warehouse Stock',          'WH-B-001', 'WH-B', 'Warehouse B / Shelf 2',              'Available',    'HVAC',       8.50),
+  (3,  'Electrical Conduit 1 in','EC-100',   48, 'pcs',   'Warehouse Stock',          'WH-A-001', 'WH-A', 'Warehouse A / Rack 1',               'Reserved',     'Electrical', 12.75),
+  (4,  'Air Diffuser 24x24',     'AD-2424',  22, 'pcs',   'Warehouse Stock',          'WH-C-001', 'WH-C', 'Warehouse C / Bay 4',                'Available',    'HVAC',      42.00),
+  (5,  'Ball Valve 2 in',        'BV-200',    7, 'pcs',   'Warehouse Stock',          'WH-A-001', 'WH-A', 'Warehouse A / Bin 8',                'Low Stock',    'Plumbing',  31.50),
+  (6,  'Breaker Panel 200A',     'BP-200A',   9, 'pcs',   'Warehouse Stock',          'WH-C-001', 'WH-C', 'Warehouse C / Secure Cage',          'Available',    'Electrical',185.00),
+  (7,  'Flexible Duct 8 in',     'FD-800',    0, 'rolls', 'Warehouse Stock',          'WH-B-001', 'WH-B', 'Warehouse B / Rack 6',               'Out of Stock', 'HVAC',      56.00),
+  (8,  'Threaded Rod 1/2 in',    'TR-050',   85, 'pcs',   'Warehouse Stock',          'WH-A-001', 'WH-A', 'Warehouse A / Rack 5',               'Available',    'Hardware',    2.10),
+  (9,  'Copper Elbow 3/4 in',    'CE-075',   12, 'pcs',   'South Garage - Phase 1',   'SG-001',   'SG',   'South Garage / Storage Container',   'Available',    'Plumbing',   4.25),
+  (10, 'Lighting Control Panel', 'LCP-01',    1, 'pcs',   'West Tower - Core Buildout','WT-001',  'WT',   'West Tower / Electrical Room',       'Available',    'Electrical',950.00),
+  (11, 'VAV Box',                'VAV-440',   2, 'pcs',   'Central Office - Renovation','CO-001',  'CO',   'In Transit',                         'In Transit',   'HVAC',     225.00);
 
 -- Reset the auto-increment sequence to continue after our manual IDs
 SELECT setval('inventory_items_id_seq', 11);
@@ -220,6 +224,33 @@ INSERT INTO transfer_items (id, transfer_id, inventory_item_id, manifest_quantit
 -- TO-1003
 INSERT INTO transfer_items (id, transfer_id, inventory_item_id, manifest_quantity, shipped_quantity, received_quantity, variance_reason) VALUES
   ('TO-1003-1', 'TO-1003', 1, 20, 20, 20, '');
+
+
+-- ============================================================
+-- 9B. RESERVATION RECALC
+-- ============================================================
+-- Seed inserts some manifests and transfers directly, so recalculate
+-- current reservations after all workflow rows exist.
+
+UPDATE inventory_items
+SET reserved_quantity = 0;
+
+WITH reserved_inventory AS (
+  SELECT
+    mi.inventory_item_id,
+    COALESCE(SUM(mi.manifest_quantity), 0) AS reserved_quantity
+  FROM manifest_items mi
+  LEFT JOIN transfers t ON t.manifest_id = mi.manifest_id
+  WHERE t.id IS NULL OR t.status_value = 'ready_to_ship'
+  GROUP BY mi.inventory_item_id
+)
+UPDATE inventory_items i
+SET reserved_quantity = reserved_inventory.reserved_quantity
+FROM reserved_inventory
+WHERE i.id = reserved_inventory.inventory_item_id;
+
+UPDATE inventory_items
+SET status = compute_inventory_status(quantity, reserved_quantity);
 
 
 -- ============================================================

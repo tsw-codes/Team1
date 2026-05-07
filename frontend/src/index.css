@@ -13,12 +13,12 @@ html, body, #root {
 :root {
     color-scheme: light;
 
-    --bg: #f3f4f6;
+    --bg: #6d7278;
     --text: #111827;
     --nav-bg: #033869;
     --nav-text: #ffffff;
     --button: #7ac141;
-    --content-bg: #f3f4f6;
+    --content-bg: #6d7278;
     --border: #7ac141;
     --surface: #ffffff;
     --surface-muted: #f7f7f7;
@@ -29,12 +29,12 @@ html, body, #root {
 :root[data-theme="light"] {
     color-scheme: light;
 
-    --bg: #f3f4f6;
+    --bg: #6d7278;
     --text: #111827;
     --nav-bg: #033869;
     --nav-text: #ffffff;
     --button: #7ac141;
-    --content-bg: #f3f4f6;
+    --content-bg: #6d7278;
     --border: #7ac141;
     --surface: #ffffff;
     --surface-muted: #f7f7f7;
@@ -46,29 +46,29 @@ html, body, #root {
     color-scheme: dark;
 
     /* App background */
-    --bg: #6d7278;
-    --content-bg: #6d7278;
+    --bg: #050608;
+    --content-bg: #090b0f;
 
     /* Text */
-    --text: #f5f5f5;
+    --text: #e7edf5;
 
-    /* Navigation */
-    --nav-bg: #21476d;
-    --nav-text: #ffffff;
+    /* Navigation / brand accent */
+    --nav-bg: #3f78ad;
+    --nav-text: #f8fbff;
 
-    /* Accent */
-    --button: #7ac141;
-    --border: #7ac141;
+    /* MEC2 accent */
+    --button: #7fc84a;
+    --border: rgba(255, 255, 255, 0.16);
 
-    /* Cards / panels (lightened more) */
-    --surface: #f0f2f5;
+    /* Cards / panels */
+    --surface: #24486d;
 
     /* Secondary surfaces */
-    --surface-muted: #e6e9ed;
+    --surface-muted: #3f4f62;
 
-    /* Inputs (slightly darker than cards) */
-    --input-bg: #d7dbe0;
-    --read-only-bg: #e1e5ea;
+    /* Inputs */
+    --input-bg: rgba(10, 16, 24, 0.48);
+    --read-only-bg: rgba(245, 248, 252, 0.12);
 }
 
 body {
@@ -123,4 +123,23 @@ body {
     min-height: 0;
     overflow: hidden;
     background: var(--content-bg);
+}
+
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] .app-shell {
+    background:
+        linear-gradient(180deg, #050608 0%, #090b0f 100%);
+}
+
+:root[data-theme="dark"] .topbar {
+    background:
+        linear-gradient(180deg, rgba(18, 42, 66, 0.96) 0%, rgba(10, 20, 31, 0.99) 100%);
+    border-bottom: 1px solid rgba(142, 207, 90, 0.14);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-theme="dark"] .main-layout,
+:root[data-theme="dark"] .content-window {
+    background:
+        linear-gradient(180deg, #090b0f 0%, #07090c 100%);
 }

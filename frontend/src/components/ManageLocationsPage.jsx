@@ -14,6 +14,14 @@ const EMPTY_FORM = {
     value: "",
     label: "",
     type: "warehouse",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    pocName: "",
+    pocPhone: "",
+    pocEmail: "",
 }
 
 function ManageLocationsPage({ onBack }) {
@@ -88,6 +96,14 @@ function ManageLocationsPage({ onBack }) {
             value: location.value,
             label: location.label,
             type: location.type,
+            addressLine1: location.addressLine1 || "",
+            addressLine2: location.addressLine2 || "",
+            city: location.city || "",
+            state: location.state || "",
+            postalCode: location.postalCode || "",
+            pocName: location.pocName || "",
+            pocPhone: location.pocPhone || "",
+            pocEmail: location.pocEmail || "",
         })
         setFormError("")
     }
@@ -182,6 +198,14 @@ function ManageLocationsPage({ onBack }) {
                 await updateLocation(formValues.value, {
                     label: formValues.label,
                     type: formValues.type,
+                    addressLine1: formValues.addressLine1,
+                    addressLine2: formValues.addressLine2,
+                    city: formValues.city,
+                    state: formValues.state,
+                    postalCode: formValues.postalCode,
+                    pocName: formValues.pocName,
+                    pocPhone: formValues.pocPhone,
+                    pocEmail: formValues.pocEmail,
                 })
                 showToast(`Location ${formValues.value.trim().toUpperCase()} updated.`)
             }
@@ -245,7 +269,9 @@ function ManageLocationsPage({ onBack }) {
             const matchesSearch =
                 !normalizedSearch ||
                 location.value.toLowerCase().includes(normalizedSearch) ||
-                location.label.toLowerCase().includes(normalizedSearch)
+                location.label.toLowerCase().includes(normalizedSearch) ||
+                location.city?.toLowerCase().includes(normalizedSearch) ||
+                location.pocName?.toLowerCase().includes(normalizedSearch)
 
             const matchesType =
                 typeFilter === "All" ||
@@ -264,16 +290,11 @@ function ManageLocationsPage({ onBack }) {
                 ref={formCardRef}
                 key={formMode === "create" ? "new-location-form" : `edit-${formValues.value}`}
             >
-                <div className="inventory-card-top">
-                    <div>
+                <div className="inventory-card-top manage-location-card-top">
+                    <div className="manage-location-card-header">
                         <h3 className="inventory-item-title">
                             {formMode === "create" ? "New Location" : "Edit Location"}
                         </h3>
-                        <p className="inventory-item-subtext">
-                            {formMode === "create"
-                                ? "Add the location name first and the code will be generated from it."
-                                : `Code: ${formValues.value}`}
-                        </p>
                     </div>
                     <span className="status-badge available">Active</span>
                 </div>
@@ -313,6 +334,94 @@ function ManageLocationsPage({ onBack }) {
                             onChange={handleFormChange}
                             placeholder="Auto-generated"
                             readOnly
+                        />
+                    </label>
+
+                    <label className="form-group receive-form-span-2">
+                        <span className="form-label">Address Line 1</span>
+                        <input
+                            className="form-input"
+                            name="addressLine1"
+                            value={formValues.addressLine1}
+                            onChange={handleFormChange}
+                            placeholder="1200 Main Street"
+                        />
+                    </label>
+
+                    <label className="form-group receive-form-span-2">
+                        <span className="form-label">Address Line 2</span>
+                        <input
+                            className="form-input"
+                            name="addressLine2"
+                            value={formValues.addressLine2}
+                            onChange={handleFormChange}
+                            placeholder="Suite, floor, trailer office"
+                        />
+                    </label>
+
+                    <label className="form-group">
+                        <span className="form-label">City</span>
+                        <input
+                            className="form-input"
+                            name="city"
+                            value={formValues.city}
+                            onChange={handleFormChange}
+                            placeholder="Dallas"
+                        />
+                    </label>
+
+                    <label className="form-group">
+                        <span className="form-label">State</span>
+                        <input
+                            className="form-input"
+                            name="state"
+                            value={formValues.state}
+                            onChange={handleFormChange}
+                            placeholder="TX"
+                        />
+                    </label>
+
+                    <label className="form-group receive-form-span-2">
+                        <span className="form-label">Postal Code</span>
+                        <input
+                            className="form-input"
+                            name="postalCode"
+                            value={formValues.postalCode}
+                            onChange={handleFormChange}
+                            placeholder="75202"
+                        />
+                    </label>
+
+                    <label className="form-group">
+                        <span className="form-label">POC Name</span>
+                        <input
+                            className="form-input"
+                            name="pocName"
+                            value={formValues.pocName}
+                            onChange={handleFormChange}
+                            placeholder="Casey Morgan"
+                        />
+                    </label>
+
+                    <label className="form-group">
+                        <span className="form-label">POC Phone</span>
+                        <input
+                            className="form-input"
+                            name="pocPhone"
+                            value={formValues.pocPhone}
+                            onChange={handleFormChange}
+                            placeholder="214-555-0157"
+                        />
+                    </label>
+
+                    <label className="form-group receive-form-span-2">
+                        <span className="form-label">POC Email</span>
+                        <input
+                            className="form-input"
+                            name="pocEmail"
+                            value={formValues.pocEmail}
+                            onChange={handleFormChange}
+                            placeholder="casey.morgan@coolsys.com"
                         />
                     </label>
 
@@ -413,28 +522,48 @@ function ManageLocationsPage({ onBack }) {
                                         renderLocationFormCard()
                                     ) : (
                                     <div className="inventory-card manage-location-card" key={location.value}>
-                                        <div className="inventory-card-top">
-                                            <div>
+                                        <div className="inventory-card-top manage-location-card-top">
+                                            <div className="manage-location-card-header">
                                                 <h3 className="inventory-item-title">{location.label}</h3>
-                                                <p className="inventory-item-subtext">Code: {location.value}</p>
                                             </div>
                                             <span className="status-badge available">{location.status}</span>
                                         </div>
 
-                                        <div className="inventory-card-details manage-location-details">
-                                            <div>
+                                        <div className="manage-location-code-row">
+                                            <p className="inventory-item-subtext">
+                                                <span className="detail-label">Code: </span>
+                                                <span className="detail-value manage-location-inline-value">{location.value}</span>
+                                            </p>
+                                            <p className="inventory-item-subtext manage-location-type-text">
                                                 <span className="detail-label">Type: </span>
-                                                <span className="detail-value">{location.type === "warehouse" ? "Warehouse" : "Site"}</span>
-                                            </div>
+                                                <span className="detail-value manage-location-inline-value">
+                                                    {location.type === "warehouse" ? "Warehouse" : "Site"}
+                                                </span>
+                                            </p>
+                                        </div>
 
-                                            <div>
-                                                <span className="detail-label">Projects: </span>
-                                                <span className="detail-value">{location.projectCount}</span>
+                                        <div className="inventory-location-block manage-location-projects">
+                                            <span className="detail-label">Address:</span>
+                                            <div className="manage-location-project-list">
+                                                {location.addressLine1 ? <div className="detail-value">{location.addressLine1}</div> : null}
+                                                {location.addressLine2 ? <div className="detail-value">{location.addressLine2}</div> : null}
+                                                <div className="detail-value">
+                                                    {[location.city, location.state, location.postalCode].filter(Boolean).join(", ")}
+                                                </div>
                                             </div>
                                         </div>
 
                                         <div className="inventory-location-block manage-location-projects">
-                                            <span className="detail-label">Associated Projects:</span>
+                                            <span className="detail-label">Primary Contact:</span>
+                                            <div className="manage-location-project-list">
+                                                <div className="detail-value">{location.pocName || "No contact assigned"}</div>
+                                                {location.pocPhone ? <div className="detail-value">{location.pocPhone}</div> : null}
+                                                {location.pocEmail ? <div className="detail-value">{location.pocEmail}</div> : null}
+                                            </div>
+                                        </div>
+
+                                        <div className="inventory-location-block manage-location-projects">
+                                            <span className="detail-label">Associated Projects ({location.projectCount}):</span>
                                             {location.projects?.length > 0 ? (
                                                 <div className="manage-location-project-list">
                                                     {location.projects.map((project) => (

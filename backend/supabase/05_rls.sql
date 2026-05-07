@@ -26,6 +26,8 @@ ALTER TABLE receipts               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipt_items          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipt_attachments    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipt_item_serials   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_closeout_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_user_assignments ENABLE ROW LEVEL SECURITY;
 
 
 -- --------------------------------------------------------
@@ -54,7 +56,7 @@ CREATE POLICY "locations_delete" ON locations
 
 
 -- --------------------------------------------------------
--- PROJECTS (admin-only writes)
+-- PROJECTS (admin + project manager writes)
 -- --------------------------------------------------------
 CREATE POLICY "projects_select" ON projects
   FOR SELECT TO authenticated USING (true);
@@ -62,43 +64,102 @@ CREATE POLICY "projects_select" ON projects
 CREATE POLICY "projects_insert" ON projects
   FOR INSERT TO authenticated
   WITH CHECK (EXISTS (
-    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
   ));
 
 CREATE POLICY "projects_update" ON projects
   FOR UPDATE TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
   ));
 
 CREATE POLICY "projects_delete" ON projects
   FOR DELETE TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
   ));
+
+
+-- --------------------------------------------------------
+-- PROJECT CLOSEOUTS (admin + project manager read)
+-- --------------------------------------------------------
+CREATE POLICY "project_closeout_batches_select" ON project_closeout_batches
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "project_closeout_batches_insert" ON project_closeout_batches
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "project_closeout_batches_update" ON project_closeout_batches
+  FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
+
+-- --------------------------------------------------------
+-- PROJECT USER ASSIGNMENTS (admin + project manager read/write)
+-- --------------------------------------------------------
+CREATE POLICY "project_user_assignments_select" ON project_user_assignments
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "project_user_assignments_insert" ON project_user_assignments
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "project_user_assignments_update" ON project_user_assignments
+  FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
+CREATE POLICY "project_user_assignments_delete" ON project_user_assignments
+  FOR DELETE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'projectManager')
+  ));
+
 
 
 -- --------------------------------------------------------
 -- PROFILES (read all, update own, admin manages all)
 -- --------------------------------------------------------
-CREATE POLICY "profiles_select" ON profiles
-  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "profiles_select" ON profiles;
+DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
+DROP POLICY IF EXISTS "profiles_admin_insert" ON profiles;
+DROP POLICY IF EXISTS "profiles_admin_update" ON profiles;
+DROP POLICY IF EXISTS "profiles_admin_delete" ON profiles;
 
-CREATE POLICY "profiles_update_own" ON profiles
+CREATE POLICY "profiles_select" ON profiles
+  FOR SELECT TO authenticated
+  USING (
+    id = auth.uid()
+    OR is_current_user_admin()
+    OR can_current_user_read_project_assignment_profiles()
+  );
+
+CREATE POLICY "profiles_admin_update" ON profiles
   FOR UPDATE TO authenticated
-  USING (id = auth.uid());
+  USING (is_current_user_admin())
+  WITH CHECK (is_current_user_admin());
 
 CREATE POLICY "profiles_admin_insert" ON profiles
   FOR INSERT TO authenticated
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
-  ));
+  WITH CHECK (is_current_user_admin());
 
 CREATE POLICY "profiles_admin_delete" ON profiles
   FOR DELETE TO authenticated
-  USING (EXISTS (
-    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
-  ));
+  USING (is_current_user_admin());
 
 
 -- --------------------------------------------------------

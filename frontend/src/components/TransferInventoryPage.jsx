@@ -566,6 +566,23 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
         return "reserved"
     }
 
+    function formatWorkItemOptionLabel(record, recordType) {
+        const locationText =
+            record.location ||
+            record.destinationLocation ||
+            record.sourceLocation ||
+            ""
+
+        const projectText = record.project || ""
+        const priorityText = record.priority ? ` (${record.priority})` : ""
+        const statusText =
+            recordType === "transfer"
+                ? ` (${getStatusLabel(record.statusValue || record.status)})`
+                : ""
+
+        return [record.id, locationText, projectText].filter(Boolean).join(" - ") + priorityText + statusText
+    }
+
     if (manifestsLoading || transfersLoading) {
         return <div className="manifest-page"><p>Loading...</p></div>
     }
@@ -636,13 +653,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                         {(availableManifests ?? []).map((manifest) => (
                                             <option key={`manifest:${manifest.id}`} value={`manifest:${manifest.id}`}>
-                                                {manifest.id} - (Ready to Ship)
+                                                {formatWorkItemOptionLabel(manifest, "manifest")}
                                             </option>
                                         ))}
 
                                         {(availableTransfers ?? []).map((transfer) => (
                                             <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                                {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
+                                                {formatWorkItemOptionLabel(transfer, "transfer")}
                                             </option>
                                         ))}
                                     </select>
@@ -698,13 +715,13 @@ function TransferInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                     {(availableManifests ?? []).map((manifest) => (
                                         <option key={`manifest:${manifest.id}`} value={`manifest:${manifest.id}`}>
-                                            {manifest.id} - (Ready to Ship)
+                                            {formatWorkItemOptionLabel(manifest, "manifest")}
                                         </option>
                                     ))}
 
                                     {(availableTransfers ?? []).map((transfer) => (
                                         <option key={`transfer:${transfer.id}`} value={`transfer:${transfer.id}`}>
-                                            {transfer.id} - ({getStatusLabel(transfer.statusValue || transfer.status)})
+                                            {formatWorkItemOptionLabel(transfer, "transfer")}
                                         </option>
                                     ))}
                                 </select>

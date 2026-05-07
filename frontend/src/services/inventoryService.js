@@ -21,6 +21,10 @@ function notifyInventoryChange() {
   inventoryListeners.forEach((listener) => listener())
 }
 
+export function triggerInventoryRefresh() {
+  notifyInventoryChange()
+}
+
 /* =========================
    MOCK DATA SOURCE (mock mode only)
 ========================= */
@@ -63,17 +67,49 @@ function isWarehouseInventoryItem(item) {
   return String(item.locationValue).startsWith("WH-")
 }
 
+export function getAvailableInventoryQuantity(item) {
+  if (!item) return 0
+
+  const explicitAvailable = Number(
+    item.availableQuantity ?? item.available_quantity
+  )
+
+  if (Number.isFinite(explicitAvailable)) {
+    return Math.max(0, explicitAvailable)
+  }
+
+  if (item.status === "Reserved") return 0
+
+  const quantity = Number(item.quantity || 0)
+  const reservedQuantity = Number(
+    (item.reservedQuantity ?? item.reserved_quantity) || 0
+  )
+  return Math.max(0, quantity - reservedQuantity)
+}
+
 function isRequestableInventoryItem(item) {
   if (!item) return false
   if (!isWarehouseInventoryItem(item)) return false
   if (item.status === "In Transit") return false
-  if (Number(item.quantity || 0) <= 0) return false
+  if (getAvailableInventoryQuantity(item) <= 0) return false
   return true
 }
 
 function getInventoryStatusFromQuantity(quantity) {
   if (quantity <= 0) return "Out of Stock"
   if (quantity <= 10) return "Low Stock"
+  return "Available"
+}
+
+function getInventoryStatusFromBalances(quantity, reservedQuantity = 0) {
+  const availableQuantity = Math.max(
+    0,
+    Number(quantity || 0) - Number(reservedQuantity || 0)
+  )
+
+  if (Number(quantity || 0) <= 0) return "Out of Stock"
+  if (availableQuantity <= 0) return "Reserved"
+  if (availableQuantity <= 10) return "Low Stock"
   return "Available"
 }
 
@@ -134,7 +170,7 @@ export async function getRequestableInventory() {
     .order('id')
 
   if (error) throw new Error('Failed to load requestable inventory.')
-  return snakeToCamel(data)
+  return snakeToCamel(data).filter((item) => isRequestableInventoryItem(item))
 }
 
 export async function getRequestableInventoryForWarehouse(sourceWarehouseValue) {
@@ -155,7 +191,7 @@ export async function getRequestableInventoryForWarehouse(sourceWarehouseValue) 
     .order('id')
 
   if (error) throw new Error('Failed to load warehouse inventory.')
-  return snakeToCamel(data)
+  return snakeToCamel(data).filter((item) => isRequestableInventoryItem(item))
 }
 
 export async function findRequestableInventoryItemById(id) {
@@ -229,7 +265,7 @@ export async function getInventoryForReturnSource(sourceLocationValue) {
     .order('id')
 
   if (error) throw new Error('Failed to load inventory for location.')
-  return snakeToCamel(data)
+  return snakeToCamel(data).filter((item) => getAvailableInventoryQuantity(item) > 0)
 }
 
 export async function getInventoryForWarehouseSource(sourceLocationValue) {
@@ -250,7 +286,7 @@ export async function getInventoryForWarehouseSource(sourceLocationValue) {
     .order('id')
 
   if (error) throw new Error('Failed to load warehouse inventory.')
-  return snakeToCamel(data)
+  return snakeToCamel(data).filter((item) => isRequestableInventoryItem(item))
 }
 
 export async function getManualSourceInventory(manifestMode, sourceLocation) {
@@ -353,12 +389,14 @@ function createInventoryRecordFromReceiptLine(receipt, line, material = null) {
     name: line.materialName,
     sku: line.sku,
     quantity: receivedQuantity,
+    reservedQuantity: 0,
+    availableQuantity: receivedQuantity,
     unit: line.unit,
     projectValue: receipt.projectValue,
     project: receipt.project,
     locationValue: receipt.locationValue,
     location: receipt.location,
-    status: getInventoryStatusFromQuantity(receivedQuantity),
+    status: getInventoryStatusFromBalances(receivedQuantity, 0),
     category: line.category || material?.category || "",
     updatedAt: createAuditTimestamp(),
     unitCost,
@@ -379,9 +417,11 @@ function updateInventoryRecordFromReceiptLine(existingItem, line, material = nul
     ...existingItem,
     materialId: existingItem.materialId || material?.id || "",
     quantity: newQuantity,
+    reservedQuantity: Number(existingItem.reservedQuantity || 0),
+    availableQuantity: Math.max(0, newQuantity - Number(existingItem.reservedQuantity || 0)),
     unit: line.unit || existingItem.unit,
     category: line.category || existingItem.category || material?.category || "",
-    status: getInventoryStatusFromQuantity(newQuantity),
+    status: getInventoryStatusFromBalances(newQuantity, Number(existingItem.reservedQuantity || 0)),
     updatedAt: createAuditTimestamp(),
     totalCost: unitCost * newQuantity,
   }
@@ -466,12 +506,14 @@ function createInventoryRecordFromTransferReceipt({
     name: sourceItem?.name || item.name || "",
     sku: sourceItem?.sku || item.sku || "",
     quantity: receivedQuantity,
+    reservedQuantity: 0,
+    availableQuantity: receivedQuantity,
     unit: sourceItem?.unit || item.unit || "",
     projectValue: destinationProjectValue,
     project: destinationProject,
     locationValue: transfer.destinationLocationValue || "",
     location: destinationLocation,
-    status: getInventoryStatusFromQuantity(receivedQuantity),
+    status: getInventoryStatusFromBalances(receivedQuantity, 0),
     category: sourceItem?.category || "",
     updatedAt: createAuditTimestamp(),
     unitCost,
@@ -495,7 +537,9 @@ function updateInventoryRecordFromTransferReceipt(existingItem, item, sourceItem
     unit: existingItem.unit || sourceItem?.unit || item.unit || "",
     category: existingItem.category || sourceItem?.category || "",
     quantity: newQuantity,
-    status: getInventoryStatusFromQuantity(newQuantity),
+    reservedQuantity: Number(existingItem.reservedQuantity || 0),
+    availableQuantity: Math.max(0, newQuantity - Number(existingItem.reservedQuantity || 0)),
+    status: getInventoryStatusFromBalances(newQuantity, Number(existingItem.reservedQuantity || 0)),
     updatedAt: createAuditTimestamp(),
     totalCost: unitCost * newQuantity,
   }
@@ -579,7 +623,24 @@ export async function applyTransferShipmentToInventory(transfer) {
     const updatedItem = {
       ...sourceItem,
       quantity: newQuantity,
-      status: getInventoryStatusFromQuantity(newQuantity),
+      reservedQuantity: Math.max(
+        0,
+        Number(sourceItem.reservedQuantity || 0) - Number(item.manifestQuantity || 0)
+      ),
+      availableQuantity: Math.max(
+        0,
+        newQuantity - Math.max(
+          0,
+          Number(sourceItem.reservedQuantity || 0) - Number(item.manifestQuantity || 0)
+        )
+      ),
+      status: getInventoryStatusFromBalances(
+        newQuantity,
+        Math.max(
+          0,
+          Number(sourceItem.reservedQuantity || 0) - Number(item.manifestQuantity || 0)
+        )
+      ),
       updatedAt: createAuditTimestamp(),
       totalCost: Number(sourceItem.unitCost || 0) * newQuantity,
     }
@@ -733,7 +794,9 @@ export async function createInventoryAdjustment({
       ...item,
       quantity: newQuantity,
       totalCost: Number(item.unitCost || 0) * newQuantity,
-      status: getInventoryStatusFromQuantity(newQuantity),
+      reservedQuantity: Number(item.reservedQuantity || 0),
+      availableQuantity: Math.max(0, newQuantity - Number(item.reservedQuantity || 0)),
+      status: getInventoryStatusFromBalances(newQuantity, Number(item.reservedQuantity || 0)),
       updatedAt: adjustedAt,
     }
 

@@ -1,0 +1,13 @@
+BEGIN;
+
+ALTER TABLE locations
+  DROP COLUMN IF EXISTS poc_email,
+  DROP COLUMN IF EXISTS poc_phone,
+  DROP COLUMN IF EXISTS poc_name,
+  DROP COLUMN IF EXISTS postal_code,
+  DROP COLUMN IF EXISTS state,
+  DROP COLUMN IF EXISTS city,
+  DROP COLUMN IF EXISTS address_line_2,
+  DROP COLUMN IF EXISTS address_line_1;
+
+COMMIT;

@@ -7,6 +7,7 @@ import {
   getSiteLocationOptions,
   getWarehouseLocationOptions,
 } from "./projectService"
+import { triggerInventoryRefresh } from "./inventoryService"
 
 const manifestPermissionMap = {
   outbound: "create_outbound_manifest",
@@ -295,6 +296,7 @@ export async function createManifest(newManifest) {
 
     mockManifests.unshift(manifestWithId)
     notifyManifestChange()
+    triggerInventoryRefresh()
     return manifestWithId
   }
 
@@ -343,6 +345,7 @@ export async function createManifest(newManifest) {
   // Re-fetch from view to get joined labels + items
   const created = await findManifestById(manifest.id)
   notifyManifestChange()
+  triggerInventoryRefresh()
   return created
 }
 

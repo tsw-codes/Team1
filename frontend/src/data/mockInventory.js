@@ -39,6 +39,8 @@ export const mockInventory = [
     name: "Electrical Conduit 1 in",
     sku: "EC-100",
     quantity: 48,
+    reservedQuantity: 48,
+    availableQuantity: 0,
     unit: "pcs",
     projectValue: "WH-A-001",
     project: "Warehouse A - Inventory",

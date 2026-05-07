@@ -110,6 +110,7 @@ CREATE TRIGGER transfers_validate_status_change
 
 -- Requests: enforce valid status transitions
 -- pending_approval → approved OR rejected
+-- approved → manifested
 CREATE OR REPLACE FUNCTION validate_request_status_change()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -123,9 +124,13 @@ BEGIN
         RAISE EXCEPTION 'Pending requests can only be approved or rejected, not "%".', NEW.status_value;
       END IF;
     WHEN 'approved' THEN
-      RAISE EXCEPTION 'This request has already been approved. Approved requests cannot be changed.';
+      IF NEW.status_value NOT IN ('manifested') THEN
+        RAISE EXCEPTION 'Approved requests can only move to "manifested", not "%".', NEW.status_value;
+      END IF;
     WHEN 'rejected' THEN
       RAISE EXCEPTION 'This request has been rejected. Rejected requests cannot be changed.';
+    WHEN 'manifested' THEN
+      RAISE EXCEPTION 'This request has already been manifested. Manifested requests cannot be changed.';
     ELSE
       RAISE EXCEPTION 'Unknown request status: "%".', OLD.status_value;
   END CASE;
@@ -137,6 +142,107 @@ $$ LANGUAGE plpgsql SET search_path = public;
 CREATE TRIGGER requests_validate_status_change
   BEFORE UPDATE ON requests
   FOR EACH ROW EXECUTE FUNCTION validate_request_status_change();
+
+
+-- Outbound manifests: mark the linked approved request as manifested
+CREATE OR REPLACE FUNCTION mark_request_manifested_on_manifest_create()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.request_id IS NOT NULL AND NEW.manifest_type_value = 'outbound' THEN
+    UPDATE requests
+    SET status_value = 'manifested'
+    WHERE id = NEW.request_id
+      AND status_value = 'approved';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER manifests_mark_request_manifested
+  AFTER INSERT ON manifests
+  FOR EACH ROW EXECUTE FUNCTION mark_request_manifested_on_manifest_create();
+
+
+-- Manifest items reserve source inventory until the transfer ships.
+CREATE OR REPLACE FUNCTION adjust_manifest_item_reservation(
+  p_manifest_id TEXT,
+  p_inventory_item_id INTEGER,
+  p_reservation_delta INTEGER
+)
+RETURNS VOID AS $$
+DECLARE
+  v_inventory_row RECORD;
+  v_transfer_status TEXT;
+  v_new_reserved_quantity INTEGER;
+BEGIN
+  IF COALESCE(p_reservation_delta, 0) = 0 THEN
+    RETURN;
+  END IF;
+
+  SELECT status_value
+  INTO v_transfer_status
+  FROM transfers
+  WHERE manifest_id = p_manifest_id
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF v_transfer_status IS NOT NULL AND v_transfer_status <> 'ready_to_ship' THEN
+    RAISE EXCEPTION 'Cannot modify manifest item reservation after transfer processing has started.';
+  END IF;
+
+  SELECT id, quantity, reserved_quantity, lifecycle_status
+  INTO v_inventory_row
+  FROM inventory_items
+  WHERE id = p_inventory_item_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Inventory item % does not exist.', p_inventory_item_id;
+  END IF;
+
+  IF v_inventory_row.lifecycle_status <> 'active' THEN
+    RAISE EXCEPTION 'Inventory item % is not active and cannot be manifested.', p_inventory_item_id;
+  END IF;
+
+  IF p_reservation_delta > 0
+    AND GREATEST(v_inventory_row.quantity - v_inventory_row.reserved_quantity, 0) < p_reservation_delta THEN
+    RAISE EXCEPTION 'Manifest quantity exceeds available inventory for item %.', p_inventory_item_id;
+  END IF;
+
+  v_new_reserved_quantity := GREATEST(v_inventory_row.reserved_quantity + p_reservation_delta, 0);
+
+  UPDATE inventory_items
+  SET reserved_quantity = v_new_reserved_quantity,
+      status = compute_inventory_status(quantity, v_new_reserved_quantity)
+  WHERE id = p_inventory_item_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION sync_manifest_item_reservation()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM adjust_manifest_item_reservation(OLD.manifest_id, OLD.inventory_item_id, -OLD.manifest_quantity);
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    PERFORM adjust_manifest_item_reservation(OLD.manifest_id, OLD.inventory_item_id, -OLD.manifest_quantity);
+    PERFORM adjust_manifest_item_reservation(NEW.manifest_id, NEW.inventory_item_id, NEW.manifest_quantity);
+    RETURN NEW;
+  END IF;
+
+  PERFORM adjust_manifest_item_reservation(NEW.manifest_id, NEW.inventory_item_id, NEW.manifest_quantity);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS manifest_items_sync_reservation ON manifest_items;
+
+CREATE TRIGGER manifest_items_sync_reservation
+  AFTER INSERT OR UPDATE OR DELETE ON manifest_items
+  FOR EACH ROW EXECUTE FUNCTION sync_manifest_item_reservation();
 
 
 -- --------------------------------------------------------
@@ -311,12 +417,17 @@ DECLARE
   v_item RECORD;
   v_adj_id TEXT;
   v_prev_qty INTEGER;
+  v_prev_reserved_qty INTEGER;
   v_new_qty INTEGER;
+  v_new_reserved_qty INTEGER;
   v_change INTEGER;
   v_new_status TEXT;
   v_source_loc TEXT;
   v_dest_loc TEXT;
   v_dest_loc_label TEXT;
+  v_dest_loc_type TEXT;
+  v_effective_dest_project_value TEXT;
+  v_dest_project_label TEXT;
   v_dest_item_id INTEGER;
   v_src_row RECORD;
 BEGIN
@@ -329,28 +440,26 @@ BEGIN
     v_source_loc := NEW.source_location_value;
 
     FOR v_item IN
-      SELECT ti.inventory_item_id, ti.shipped_quantity
+      SELECT ti.inventory_item_id, ti.manifest_quantity, ti.shipped_quantity
       FROM transfer_items ti
       WHERE ti.transfer_id = NEW.id
         AND ti.shipped_quantity IS NOT NULL
         AND ti.shipped_quantity > 0
     LOOP
-      SELECT quantity INTO v_prev_qty
+      SELECT quantity, reserved_quantity INTO v_prev_qty, v_prev_reserved_qty
       FROM inventory_items
       WHERE id = v_item.inventory_item_id
       FOR UPDATE;
 
       v_change := v_item.shipped_quantity;
       v_new_qty := GREATEST(v_prev_qty - v_change, 0);
-
-      v_new_status := CASE
-        WHEN v_new_qty <= 0  THEN 'Out of Stock'
-        WHEN v_new_qty <= 10 THEN 'Low Stock'
-        ELSE 'Available'
-      END;
+      v_new_reserved_qty := GREATEST(v_prev_reserved_qty - COALESCE(v_item.manifest_quantity, 0), 0);
+      v_new_status := compute_inventory_status(v_new_qty, v_new_reserved_qty);
 
       UPDATE inventory_items
-      SET quantity = v_new_qty, status = v_new_status
+      SET quantity = v_new_qty,
+          reserved_quantity = v_new_reserved_qty,
+          status = v_new_status
       WHERE id = v_item.inventory_item_id;
 
       v_adj_id := generate_adjustment_id();
@@ -367,7 +476,23 @@ BEGIN
   IF NEW.status_value IN ('completed', 'exception') THEN
     v_dest_loc := NEW.destination_location_value;
 
-    SELECT label INTO v_dest_loc_label FROM locations WHERE value = v_dest_loc;
+    SELECT label, type
+    INTO v_dest_loc_label, v_dest_loc_type
+    FROM locations
+    WHERE value = v_dest_loc;
+
+    IF v_dest_loc_type = 'warehouse' THEN
+      SELECT value, label
+      INTO v_effective_dest_project_value, v_dest_project_label
+      FROM projects
+      WHERE location_value = v_dest_loc
+        AND status_value = 'active'
+      ORDER BY value
+      LIMIT 1;
+    ELSE
+      v_effective_dest_project_value := NEW.project_value;
+      SELECT label INTO v_dest_project_label FROM projects WHERE value = v_effective_dest_project_value;
+    END IF;
 
     FOR v_item IN
       SELECT ti.inventory_item_id, ti.received_quantity
@@ -383,10 +508,12 @@ BEGIN
       WHERE id = v_item.inventory_item_id;
 
       -- Find the destination's own row for this SKU (or null if it doesn't exist yet).
-      SELECT id, quantity INTO v_dest_item_id, v_prev_qty
+      SELECT id, quantity, reserved_quantity INTO v_dest_item_id, v_prev_qty, v_prev_reserved_qty
       FROM inventory_items
       WHERE sku = v_src_row.sku
         AND location_value = v_dest_loc
+        AND COALESCE(project_value, '') = COALESCE(v_effective_dest_project_value, '')
+        AND lifecycle_status = 'active'
       LIMIT 1
       FOR UPDATE;
 
@@ -395,24 +522,23 @@ BEGIN
       IF v_dest_item_id IS NULL THEN
         -- First delivery of this SKU to this destination — create the row.
         v_prev_qty := 0;
+        v_prev_reserved_qty := 0;
         v_new_qty  := v_change;
-        v_new_status := CASE
-          WHEN v_new_qty <= 0  THEN 'Out of Stock'
-          WHEN v_new_qty <= 10 THEN 'Low Stock'
-          ELSE 'Available'
-        END;
+        v_new_status := compute_inventory_status(v_new_qty, 0);
 
         INSERT INTO inventory_items (
-          name, sku, quantity, unit, project,
+          name, sku, quantity, reserved_quantity, unit, project, project_value,
           location_value, location_detail, status, category, unit_cost
         ) VALUES (
           v_src_row.name,
           v_src_row.sku,
           v_new_qty,
+          0,
           v_src_row.unit,
-          COALESCE(v_dest_loc_label, v_dest_loc),
+          COALESCE(v_dest_project_label, v_dest_loc_label, v_dest_loc),
+          v_effective_dest_project_value,
           v_dest_loc,
-          COALESCE(v_dest_loc_label, v_dest_loc),
+          COALESCE(NULLIF(NEW.destination_detail, ''), v_dest_loc_label, v_dest_loc),
           v_new_status,
           v_src_row.category,
           v_src_row.unit_cost
@@ -421,11 +547,7 @@ BEGIN
       ELSE
         -- Destination already has a row for this SKU — increment it.
         v_new_qty := v_prev_qty + v_change;
-        v_new_status := CASE
-          WHEN v_new_qty <= 0  THEN 'Out of Stock'
-          WHEN v_new_qty <= 10 THEN 'Low Stock'
-          ELSE 'Available'
-        END;
+        v_new_status := compute_inventory_status(v_new_qty, v_prev_reserved_qty);
 
         UPDATE inventory_items
         SET quantity = v_new_qty, status = v_new_status
@@ -608,6 +730,348 @@ BEGIN
   SET status_value = v_new_status
   WHERE id = p_purchase_order_id
     AND status_value <> 'cancelled';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Helper: get current user's username for audit logging
+CREATE OR REPLACE FUNCTION get_current_username()
+RETURNS TEXT AS $$
+DECLARE
+  v_username TEXT;
+BEGIN
+  SELECT username INTO v_username
+  FROM profiles
+  WHERE id = auth.uid();
+
+  IF v_username IS NULL THEN
+    RAISE EXCEPTION 'User profile not found. Please contact an administrator.';
+  END IF;
+
+  RETURN v_username;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Helper: ensure a referenced project is still active
+CREATE OR REPLACE FUNCTION assert_project_is_active(p_project_value TEXT, p_context TEXT)
+RETURNS VOID AS $$
+DECLARE
+  v_status TEXT;
+  v_label TEXT;
+BEGIN
+  IF p_project_value IS NULL OR btrim(p_project_value) = '' THEN
+    RETURN;
+  END IF;
+
+  SELECT status_value, label
+  INTO v_status, v_label
+  FROM projects
+  WHERE value = p_project_value;
+
+  IF v_status IS NULL THEN
+    RAISE EXCEPTION 'Project % does not exist.', p_project_value;
+  END IF;
+
+  IF v_status != 'active' THEN
+    RAISE EXCEPTION 'Project "%" is closed and cannot be used for %.', COALESCE(v_label, p_project_value), p_context;
+  END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Generic trigger: block inserts/retargeting to closed projects
+CREATE OR REPLACE FUNCTION validate_active_project_reference()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_project_value TEXT;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND COALESCE(to_jsonb(NEW)->>TG_ARGV[0], '') = COALESCE(to_jsonb(OLD)->>TG_ARGV[0], '') THEN
+    RETURN NEW;
+  END IF;
+
+  v_project_value := NULLIF(to_jsonb(NEW)->>TG_ARGV[0], '');
+  PERFORM assert_project_is_active(v_project_value, TG_ARGV[1]);
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER requests_validate_active_project
+  BEFORE INSERT OR UPDATE ON requests
+  FOR EACH ROW EXECUTE FUNCTION validate_active_project_reference('project_value', 'requests');
+
+CREATE TRIGGER manifests_validate_active_project
+  BEFORE INSERT OR UPDATE ON manifests
+  FOR EACH ROW EXECUTE FUNCTION validate_active_project_reference('project_value', 'manifests');
+
+CREATE TRIGGER transfers_validate_active_project
+  BEFORE INSERT OR UPDATE ON transfers
+  FOR EACH ROW EXECUTE FUNCTION validate_active_project_reference('project_value', 'transfers');
+
+CREATE TRIGGER purchase_orders_validate_active_project
+  BEFORE INSERT OR UPDATE ON purchase_orders
+  FOR EACH ROW EXECUTE FUNCTION validate_active_project_reference('project_value', 'purchase orders');
+
+CREATE TRIGGER receipts_validate_active_project
+  BEFORE INSERT OR UPDATE ON receipts
+  FOR EACH ROW EXECUTE FUNCTION validate_active_project_reference('project_value', 'receipts');
+
+CREATE TRIGGER inventory_validate_active_project
+  BEFORE INSERT OR UPDATE ON inventory_items
+  FOR EACH ROW EXECUTE FUNCTION validate_active_project_reference('project_value', 'inventory');
+
+
+-- --------------------------------------------------------
+-- PROJECT CLOSE / REOPEN LIFECYCLE
+-- --------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION close_project(p_project_value TEXT, p_close_notes TEXT DEFAULT '')
+RETURNS JSON AS $$
+DECLARE
+  v_role TEXT;
+  v_username TEXT;
+  v_project_status TEXT;
+  v_project_label TEXT;
+  v_location_value TEXT;
+  v_closeout_batch_id TEXT;
+  v_affected_count INTEGER;
+  v_total_quantity INTEGER;
+  v_total_cost NUMERIC(12,2);
+  v_open_request_count INTEGER;
+  v_open_manifest_count INTEGER;
+  v_open_transfer_count INTEGER;
+BEGIN
+  v_role := get_current_user_role();
+
+  IF v_role NOT IN ('admin', 'projectManager') THEN
+    RAISE EXCEPTION 'Only Admins and Project Managers can close projects.';
+  END IF;
+
+  SELECT status_value, label, location_value
+  INTO v_project_status, v_project_label, v_location_value
+  FROM projects
+  WHERE value = p_project_value
+  FOR UPDATE;
+
+  IF v_project_status IS NULL THEN
+    RAISE EXCEPTION 'Project % does not exist.', p_project_value;
+  END IF;
+
+  IF v_project_status = 'closed' THEN
+    RAISE EXCEPTION 'Project "%" is already closed.', v_project_label;
+  END IF;
+
+  SELECT COUNT(*) INTO v_open_request_count
+  FROM requests
+  WHERE project_value = p_project_value
+    AND status_value NOT IN ('rejected', 'manifested');
+
+  IF v_open_request_count > 0 THEN
+    RAISE EXCEPTION 'Project "%" still has open requests and cannot be closed.', v_project_label;
+  END IF;
+
+  SELECT COUNT(*) INTO v_open_manifest_count
+  FROM manifests m
+  WHERE (
+      m.project_value = p_project_value
+      OR EXISTS (
+        SELECT 1
+        FROM requests r
+        WHERE r.id = m.request_id
+          AND r.project_value = p_project_value
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM manifest_items mi
+        JOIN inventory_items ii ON ii.id = mi.inventory_item_id
+        WHERE mi.manifest_id = m.id
+          AND ii.project_value = p_project_value
+      )
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM transfers t
+      WHERE t.manifest_id = m.id
+    );
+
+  IF v_open_manifest_count > 0 THEN
+    RAISE EXCEPTION 'Project "%" still has manifested inventory awaiting transfer and cannot be closed.', v_project_label;
+  END IF;
+
+  SELECT COUNT(*) INTO v_open_transfer_count
+  FROM transfers t
+  WHERE (
+      t.project_value = p_project_value
+      OR EXISTS (
+        SELECT 1
+        FROM requests r
+        WHERE r.id = t.request_id
+          AND r.project_value = p_project_value
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM manifests m
+        WHERE m.id = t.manifest_id
+          AND (
+            m.project_value = p_project_value
+            OR EXISTS (
+              SELECT 1
+              FROM requests r2
+              WHERE r2.id = m.request_id
+                AND r2.project_value = p_project_value
+            )
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM transfer_items ti
+        JOIN inventory_items ii ON ii.id = ti.inventory_item_id
+        WHERE ti.transfer_id = t.id
+          AND ii.project_value = p_project_value
+      )
+    )
+    AND t.status_value NOT IN ('completed');
+
+  IF v_open_transfer_count > 0 THEN
+    RAISE EXCEPTION 'Project "%" still has in-flight transfers and cannot be closed.', v_project_label;
+  END IF;
+
+  v_username := get_current_username();
+  v_closeout_batch_id := generate_project_closeout_batch_id();
+
+  SELECT
+    COUNT(*),
+    COALESCE(SUM(quantity), 0),
+    COALESCE(SUM(total_cost), 0)
+  INTO
+    v_affected_count,
+    v_total_quantity,
+    v_total_cost
+  FROM inventory_items
+  WHERE project_value = p_project_value
+    AND lifecycle_status = 'active';
+
+  INSERT INTO project_closeout_batches (
+    id, project_value, location_value, closed_at, closed_by, close_notes,
+    affected_inventory_count, affected_total_quantity, affected_total_cost
+  ) VALUES (
+    v_closeout_batch_id, p_project_value, v_location_value, now(), v_username, COALESCE(p_close_notes, ''),
+    COALESCE(v_affected_count, 0), COALESCE(v_total_quantity, 0), COALESCE(v_total_cost, 0)
+  );
+
+  UPDATE inventory_items
+  SET lifecycle_status = 'closed_project',
+      closed_project_batch_id = v_closeout_batch_id,
+      project_closed_at = now()
+  WHERE project_value = p_project_value
+    AND lifecycle_status = 'active';
+
+  UPDATE projects
+  SET status_value = 'closed',
+      closed_at = now(),
+      closed_by = v_username,
+      close_notes = COALESCE(p_close_notes, ''),
+      reopened_at = NULL,
+      reopened_by = NULL,
+      reopen_reason = ''
+  WHERE value = p_project_value;
+
+  RETURN json_build_object(
+    'projectValue', p_project_value,
+    'project', v_project_label,
+    'closeoutBatchId', v_closeout_batch_id,
+    'affectedInventoryCount', COALESCE(v_affected_count, 0),
+    'affectedTotalQuantity', COALESCE(v_total_quantity, 0),
+    'affectedTotalCost', COALESCE(v_total_cost, 0),
+    'closedBy', v_username,
+    'closedAt', now()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION reopen_project(p_project_value TEXT, p_reopen_reason TEXT)
+RETURNS JSON AS $$
+DECLARE
+  v_role TEXT;
+  v_username TEXT;
+  v_project_status TEXT;
+  v_project_label TEXT;
+  v_closed_at TIMESTAMPTZ;
+  v_closeout_batch_id TEXT;
+  v_restored_count INTEGER;
+BEGIN
+  IF p_reopen_reason IS NULL OR btrim(p_reopen_reason) = '' THEN
+    RAISE EXCEPTION 'A reopen reason is required.';
+  END IF;
+
+  v_role := get_current_user_role();
+
+  IF v_role NOT IN ('admin', 'projectManager') THEN
+    RAISE EXCEPTION 'Only Admins and Project Managers can reopen projects.';
+  END IF;
+
+  SELECT status_value, label, closed_at
+  INTO v_project_status, v_project_label, v_closed_at
+  FROM projects
+  WHERE value = p_project_value
+  FOR UPDATE;
+
+  IF v_project_status IS NULL THEN
+    RAISE EXCEPTION 'Project % does not exist.', p_project_value;
+  END IF;
+
+  IF v_project_status != 'closed' THEN
+    RAISE EXCEPTION 'Only closed projects can be reopened.';
+  END IF;
+
+  IF v_closed_at IS NULL OR v_closed_at < (now() - interval '30 days') THEN
+    RAISE EXCEPTION 'Project "%" is outside the 30-day reopen window.', v_project_label;
+  END IF;
+
+  SELECT id
+  INTO v_closeout_batch_id
+  FROM project_closeout_batches
+  WHERE project_value = p_project_value
+    AND reopened_at IS NULL
+  ORDER BY closed_at DESC
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_closeout_batch_id IS NULL THEN
+    RAISE EXCEPTION 'No unreopened closeout batch was found for project "%".', v_project_label;
+  END IF;
+
+  v_username := get_current_username();
+
+  UPDATE inventory_items
+  SET lifecycle_status = 'active',
+      closed_project_batch_id = NULL,
+      project_closed_at = NULL
+  WHERE closed_project_batch_id = v_closeout_batch_id
+    AND lifecycle_status = 'closed_project';
+
+  GET DIAGNOSTICS v_restored_count = ROW_COUNT;
+
+  UPDATE project_closeout_batches
+  SET reopened_at = now(),
+      reopened_by = v_username,
+      reopen_reason = btrim(p_reopen_reason)
+  WHERE id = v_closeout_batch_id;
+
+  UPDATE projects
+  SET status_value = 'active',
+      reopened_at = now(),
+      reopened_by = v_username,
+      reopen_reason = btrim(p_reopen_reason)
+  WHERE value = p_project_value;
+
+  RETURN json_build_object(
+    'projectValue', p_project_value,
+    'project', v_project_label,
+    'closeoutBatchId', v_closeout_batch_id,
+    'restoredInventoryCount', COALESCE(v_restored_count, 0),
+    'reopenedBy', v_username,
+    'reopenedAt', now()
+  );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 

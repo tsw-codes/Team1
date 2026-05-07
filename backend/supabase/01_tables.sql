@@ -8,18 +8,33 @@
 
 -- Locations: warehouses and job sites
 CREATE TABLE locations (
-  value  TEXT PRIMARY KEY,                                    -- 'WH-A', 'SG', 'WT', etc.
-  label  TEXT NOT NULL,                                       -- 'Warehouse A', 'South Garage'
-  type   TEXT NOT NULL CHECK (type IN ('warehouse', 'site')), -- location type
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  value          TEXT PRIMARY KEY,                                    -- 'WH-A', 'SG', 'WT', etc.
+  label          TEXT NOT NULL,                                       -- 'Warehouse A', 'South Garage'
+  type           TEXT NOT NULL CHECK (type IN ('warehouse', 'site')), -- location type
+  address_line_1 TEXT NOT NULL DEFAULT '',
+  address_line_2 TEXT NOT NULL DEFAULT '',
+  city           TEXT NOT NULL DEFAULT '',
+  state          TEXT NOT NULL DEFAULT '',
+  postal_code    TEXT NOT NULL DEFAULT '',
+  poc_name       TEXT NOT NULL DEFAULT '',
+  poc_phone      TEXT NOT NULL DEFAULT '',
+  poc_email      TEXT NOT NULL DEFAULT '',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Projects: tied to a location
 CREATE TABLE projects (
-  value          TEXT PRIMARY KEY,                            -- 'SG-001', 'WH-A-001'
-  label          TEXT NOT NULL,                               -- 'South Garage - Phase 1'
-  location_value TEXT NOT NULL REFERENCES locations(value),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  value           TEXT PRIMARY KEY,                            -- 'SG-001', 'WH-A-001'
+  label           TEXT NOT NULL,                               -- 'South Garage - Phase 1'
+  location_value  TEXT NOT NULL REFERENCES locations(value),
+  status_value    TEXT NOT NULL DEFAULT 'active' CHECK (status_value IN ('active', 'closed')),
+  closed_at       TIMESTAMPTZ,
+  closed_by       TEXT,
+  close_notes     TEXT NOT NULL DEFAULT '',
+  reopened_at     TIMESTAMPTZ,
+  reopened_by     TEXT,
+  reopen_reason   TEXT NOT NULL DEFAULT '',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Profiles: extends Supabase auth.users
@@ -27,12 +42,26 @@ CREATE TABLE projects (
 CREATE TABLE profiles (
   id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username   TEXT UNIQUE NOT NULL,                            -- 'admin', 'pm', 'wm', etc.
+  first_name TEXT NOT NULL DEFAULT '',
+  last_name  TEXT NOT NULL DEFAULT '',
   name       TEXT NOT NULL,                                   -- 'Admin User'
+  email      TEXT,
   role       TEXT NOT NULL CHECK (role IN (
     'admin', 'projectManager', 'warehouseManager',
     'logisticsAssociate', 'logisticsForeman'
   )),
+  is_active  BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Project-user assignments: PM / foreman associations for alerts and ownership
+CREATE TABLE project_user_assignments (
+  id              SERIAL PRIMARY KEY,
+  project_value   TEXT NOT NULL REFERENCES projects(value) ON DELETE CASCADE,
+  user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  assignment_role TEXT NOT NULL CHECK (assignment_role IN ('projectManager', 'logisticsForeman')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (project_value, user_id, assignment_role)
 );
 
 -- Inventory items
@@ -41,10 +70,15 @@ CREATE TABLE inventory_items (
   name            TEXT NOT NULL,
   sku             TEXT NOT NULL,
   quantity        INTEGER NOT NULL DEFAULT 0,
+  reserved_quantity INTEGER NOT NULL DEFAULT 0,
   unit            TEXT NOT NULL,                              -- 'ft', 'pcs', 'rolls'
   project         TEXT,                                       -- display name: 'Warehouse Stock', 'South Garage'
+  project_value   TEXT REFERENCES projects(value),            -- FK to active project / warehouse stock bucket
   location_value  TEXT REFERENCES locations(value),           -- FK to location
   location_detail TEXT,                                       -- free text: 'Warehouse A / Rack 3'
+  lifecycle_status TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle_status IN ('active', 'closed_project')),
+  closed_project_batch_id TEXT,
+  project_closed_at TIMESTAMPTZ,
   status          TEXT NOT NULL DEFAULT 'Available',          -- 'Available', 'Low Stock', 'Out of Stock', 'Reserved', 'In Transit'
   category        TEXT NOT NULL,                              -- 'Plumbing', 'HVAC', 'Electrical', 'Hardware'
   unit_cost       NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -165,6 +199,22 @@ CREATE TABLE inventory_adjustments (
   reason            TEXT NOT NULL,
   adjusted_by       TEXT NOT NULL,                            -- username
   adjusted_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Project closeout batches: one record per close event
+CREATE TABLE project_closeout_batches (
+  id              TEXT PRIMARY KEY,
+  project_value   TEXT NOT NULL REFERENCES projects(value),
+  location_value  TEXT NOT NULL REFERENCES locations(value),
+  closed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  closed_by       TEXT NOT NULL,
+  close_notes     TEXT NOT NULL DEFAULT '',
+  affected_inventory_count INTEGER NOT NULL DEFAULT 0,
+  affected_total_quantity  INTEGER NOT NULL DEFAULT 0,
+  affected_total_cost      NUMERIC(12,2) NOT NULL DEFAULT 0,
+  reopened_at     TIMESTAMPTZ,
+  reopened_by     TEXT,
+  reopen_reason   TEXT NOT NULL DEFAULT ''
 );
 
 -- Purchase orders: planned inventory that has not physically arrived yet

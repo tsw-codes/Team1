@@ -10,12 +10,58 @@
 -- Inventory view: maps location_detail to frontend's 'location' field
 CREATE VIEW inventory_view WITH (security_invoker = true) AS
 SELECT
-  id, name, sku, quantity, unit, project,
-  location_value,
-  location_detail AS location,
-  status, category,
-  unit_cost, total_cost, updated_at
-FROM inventory_items;
+  i.id, i.name, i.sku, i.quantity, i.reserved_quantity,
+  GREATEST(i.quantity - i.reserved_quantity, 0) AS available_quantity,
+  i.unit,
+  COALESCE(proj.label, i.project) AS project,
+  i.project_value,
+  i.location_value,
+  i.location_detail AS location,
+  i.status, i.category,
+  i.unit_cost, i.total_cost, i.updated_at
+FROM inventory_items i
+LEFT JOIN projects proj ON i.project_value = proj.value
+WHERE i.lifecycle_status = 'active';
+
+-- Projects view: joins location labels and exposes lifecycle state
+CREATE VIEW projects_view WITH (security_invoker = true) AS
+SELECT
+  p.value, p.label, p.location_value, p.status_value,
+  p.closed_at, p.closed_by, p.close_notes,
+  p.reopened_at, p.reopened_by, p.reopen_reason,
+  p.created_at,
+  loc.label AS location,
+  loc.type AS location_type,
+  CASE p.status_value
+    WHEN 'active' THEN 'Active'
+    WHEN 'closed' THEN 'Closed'
+    ELSE p.status_value
+  END AS status,
+  (
+    p.status_value = 'closed'
+    AND p.closed_at IS NOT NULL
+    AND p.closed_at >= (now() - interval '30 days')
+  ) AS reopen_eligible
+FROM projects p
+LEFT JOIN locations loc ON p.location_value = loc.value;
+
+-- Project user assignments view: joins profile identity fields for admin UIs
+CREATE VIEW project_user_assignments_view WITH (security_invoker = true) AS
+SELECT
+  pua.id,
+  pua.project_value,
+  pua.user_id,
+  pua.assignment_role,
+  pua.created_at,
+  prof.username,
+  prof.first_name,
+  prof.last_name,
+  prof.name,
+  prof.email,
+  prof.role AS user_role,
+  prof.is_active
+FROM project_user_assignments pua
+LEFT JOIN profiles prof ON pua.user_id = prof.id;
 
 -- Requests view: joins location/project labels and formats display values
 CREATE VIEW requests_view WITH (security_invoker = true) AS

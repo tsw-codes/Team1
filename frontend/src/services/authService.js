@@ -8,12 +8,12 @@ const EMAIL_DOMAIN = 'coolsys.com'
  */
 export async function getAllUsers() {
   if (USE_MOCK) {
-    return mockUsers.map(({ id, username, name, role }) => ({ id, username, name, role }))
+    return mockUsers.map(({ id, username, name, role }) => ({ id, username, name, role, is_active: true }))
   }
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, name, role')
+    .select('id, username, name, role, is_active')
 
   if (error) throw new Error(`Failed to load users: ${error.message}`)
   return data
@@ -42,11 +42,15 @@ export async function authenticateUser(username, password) {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('id, username, name, role')
+    .select('id, username, name, role, is_active')
     .eq('id', data.user.id)
     .single()
 
   if (profileError) throw new Error(`Failed to load user profile: ${profileError.message}`)
+  if (profile?.is_active === false) {
+    await supabase.auth.signOut()
+    return null
+  }
 
   return profile
 }
@@ -62,7 +66,7 @@ export async function findUserById(id) {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, name, role')
+    .select('id, username, name, role, is_active')
     .eq('id', id)
     .single()
 
@@ -81,7 +85,7 @@ export async function findUserByUsername(username) {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, name, role')
+    .select('id, username, name, role, is_active')
     .eq('username', username)
     .single()
 
@@ -128,7 +132,7 @@ export async function updateUserPassword(userId, currentPassword, newPassword) {
   // Return the profile
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, username, name, role')
+    .select('id, username, name, role, is_active')
     .eq('id', userId)
     .single()
 
@@ -158,11 +162,15 @@ export async function getCurrentSession() {
 
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, username, name, role')
+    .select('id, username, name, role, is_active')
     .eq('id', session.user.id)
     .single()
 
   if (error) return null
+  if (profile?.is_active === false) {
+    await supabase.auth.signOut()
+    return null
+  }
   return profile
 }
 

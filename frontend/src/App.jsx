@@ -17,6 +17,8 @@ import PendingRequestsPage from './components/PendingRequestsPage'
 import ShipmentTrackingPage from './components/ShipmentTrackingPage'
 import EnterPurchaseOrderPage from './components/EnterPurchaseOrderPage'
 import ManageLocationsPage from './components/ManageLocationsPage'
+import ManageProjectsPage from './components/ManageProjectsPage'
+import ManageUsersPage from './components/ManageUsersPage'
 import NotFoundPage from './components/NotFoundPage'
 
 import { getPermissionsForRole } from './auth/permissions'
@@ -571,11 +573,42 @@ function App() {
                 />
 
                 <Route
+                  path='/manage-users'
+                  element={
+                    isLoggedIn && permissions.includes("manage_users") ? (
+                      <PageTransition direction={navDirection}>
+                        <ManageUsersPage
+                          onBack={handleGoHome}
+                          currentUser={currentUser}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route
                   path='/manage-locations'
                   element={
                     isLoggedIn && permissions.includes("manage_locations") ? (
                       <PageTransition direction={navDirection}>
                         <ManageLocationsPage
+                          onBack={handleGoHome}
+                        />
+                      </PageTransition>
+                    ) : (
+                      <Navigate to='/login' replace />
+                    )
+                  }
+                />
+
+                <Route
+                  path='/manage-projects'
+                  element={
+                    isLoggedIn && permissions.includes("manage_projects") ? (
+                      <PageTransition direction={navDirection}>
+                        <ManageProjectsPage
                           onBack={handleGoHome}
                         />
                       </PageTransition>

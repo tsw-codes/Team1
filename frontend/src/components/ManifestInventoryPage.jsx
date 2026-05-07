@@ -11,6 +11,7 @@ import {
     subscribeToRequests,
 } from "../services/requestService"
 import {
+    getAvailableInventoryQuantity,
     getRequestableInventory,
     findRequestableInventoryItemById,
     getManualSourceInventory,
@@ -34,7 +35,10 @@ async function buildManifestItemsFromRequest(request) {
             return {
                 id: `${request.id}-${requestItem.id}`,
                 inventoryItemId: requestItem.inventoryItemId,
-                manifestQuantity: Math.min(requestItem.requestedQuantity, inventoryItem?.quantity ?? 0),
+                manifestQuantity: Math.min(
+                    requestItem.requestedQuantity,
+                    getAvailableInventoryQuantity(inventoryItem)
+                ),
             }
         })
     )
@@ -244,7 +248,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                     }
                 }
 
-                const availableQty = Number(matchingInventory.quantity || 0)
+                const availableQty = getAvailableInventoryQuantity(matchingInventory)
                 const currentQty = Number(item.manifestQuantity || 0)
 
                 return {
@@ -367,8 +371,8 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                     return {
                         ...item,
                         inventoryItemId: value,
-                        manifestQuantity: selectedInventory?.quantity
-                            ? Number(selectedInventory.quantity)
+                        manifestQuantity: selectedInventory
+                            ? getAvailableInventoryQuantity(selectedInventory)
                             : null,
                     }
                 }
@@ -506,7 +510,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                     )
 
             const manifestQty = Number(manifestItem.manifestQuantity || 0)
-            const availableQty = Number(inventoryItem?.quantity || 0)
+            const availableQty = getAvailableInventoryQuantity(inventoryItem)
 
             if (manifestMode !== "outbound" && !manifestItem.inventoryItemId) {
                 errors.inventoryItemId = "Inventory item selection is required."
@@ -881,7 +885,7 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
                                             )
 
                                             const requestedQuantity = getRequestedQuantity(manifestItem.inventoryItemId)
-                                            const availableQuantity = Number(inventoryItem?.quantity || 0)
+                                            const availableQuantity = getAvailableInventoryQuantity(inventoryItem)
                                             const requestedQty = Number(requestedQuantity || 0)
 
                                             const isOutOfStock = availableQuantity === 0
@@ -992,9 +996,9 @@ function ManifestInventoryPage({ onBack, currentUser, permissions = [] }) {
 
                                         const hasSelectedInventory = !!manifestItem.inventoryItemId
                                         const availableQuantity = hasSelectedInventory
-                                            ? Number(inventoryItem?.quantity || 0)
+                                            ? getAvailableInventoryQuantity(inventoryItem)
                                             : ""
-                                        const isOutOfStock = hasSelectedInventory && Number(inventoryItem?.quantity || 0) === 0
+                                        const isOutOfStock = hasSelectedInventory && getAvailableInventoryQuantity(inventoryItem) === 0
 
                                         return (
                                             <div

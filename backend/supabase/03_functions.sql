@@ -16,13 +16,33 @@
 -- profiles table even when called from auth schema context.
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_name TEXT;
+  v_first_name TEXT;
+  v_last_name TEXT;
 BEGIN
-  INSERT INTO profiles (id, username, name, role)
+  v_name := COALESCE(NULLIF(NEW.raw_user_meta_data->>'name', ''), split_part(NEW.email, '@', 1));
+  v_first_name := COALESCE(
+    NULLIF(NEW.raw_user_meta_data->>'first_name', ''),
+    split_part(v_name, ' ', 1),
+    ''
+  );
+  v_last_name := COALESCE(
+    NULLIF(NEW.raw_user_meta_data->>'last_name', ''),
+    NULLIF(trim(substr(v_name, length(split_part(v_name, ' ', 1)) + 1)), ''),
+    ''
+  );
+
+  INSERT INTO profiles (id, username, first_name, last_name, name, email, role, is_active)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
-    COALESCE(NULLIF(NEW.raw_user_meta_data->>'name', ''), 'Unknown'),
-    COALESCE(NULLIF(NEW.raw_user_meta_data->>'role', ''), 'logisticsAssociate')
+    v_first_name,
+    v_last_name,
+    v_name,
+    NEW.email,
+    COALESCE(NULLIF(NEW.raw_user_meta_data->>'role', ''), 'logisticsAssociate'),
+    true
   );
   RETURN NEW;
 END;
@@ -33,16 +53,97 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
 
+CREATE OR REPLACE FUNCTION is_current_user_admin()
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_is_admin BOOLEAN := false;
+BEGIN
+  SELECT role = 'admin' AND is_active
+  INTO v_is_admin
+  FROM profiles
+  WHERE id = auth.uid();
+
+  RETURN COALESCE(v_is_admin, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+
+CREATE OR REPLACE FUNCTION can_current_user_read_project_assignment_profiles()
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_can_read BOOLEAN := false;
+BEGIN
+  SELECT role IN ('admin', 'projectManager') AND is_active
+  INTO v_can_read
+  FROM profiles
+  WHERE id = auth.uid();
+
+  RETURN COALESCE(v_can_read, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+
 -- --------------------------------------------------------
 -- COMPUTED FIELDS (total_cost, updated_at)
 -- --------------------------------------------------------
 
+CREATE OR REPLACE FUNCTION compute_inventory_status(
+  p_quantity INTEGER,
+  p_reserved_quantity INTEGER DEFAULT 0
+)
+RETURNS TEXT AS $$
+DECLARE
+  v_quantity INTEGER := GREATEST(COALESCE(p_quantity, 0), 0);
+  v_reserved INTEGER := GREATEST(COALESCE(p_reserved_quantity, 0), 0);
+  v_available INTEGER := GREATEST(v_quantity - v_reserved, 0);
+BEGIN
+  IF v_quantity <= 0 THEN
+    RETURN 'Out of Stock';
+  END IF;
+
+  IF v_available <= 0 THEN
+    RETURN 'Reserved';
+  END IF;
+
+  IF v_available <= 10 THEN
+    RETURN 'Low Stock';
+  END IF;
+
+  RETURN 'Available';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
 -- Auto-update updated_at and total_cost on inventory changes
 CREATE OR REPLACE FUNCTION update_inventory_computed_fields()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_project_label TEXT;
 BEGIN
+  IF NEW.project_value IS NOT NULL THEN
+    SELECT label INTO v_project_label
+    FROM projects
+    WHERE value = NEW.project_value;
+
+    IF v_project_label IS NULL THEN
+      RAISE EXCEPTION 'Project % does not exist.', NEW.project_value;
+    END IF;
+
+    NEW.project = v_project_label;
+  END IF;
+
+  NEW.quantity := GREATEST(COALESCE(NEW.quantity, 0), 0);
+  NEW.reserved_quantity := GREATEST(COALESCE(NEW.reserved_quantity, 0), 0);
+
+  IF NEW.reserved_quantity > NEW.quantity THEN
+    RAISE EXCEPTION 'Reserved quantity (%) cannot exceed on-hand quantity (%) for inventory item %.',
+      NEW.reserved_quantity,
+      NEW.quantity,
+      COALESCE(NEW.id::TEXT, NEW.sku, NEW.name, 'new item');
+  END IF;
+
   NEW.updated_at = now();
   NEW.total_cost = NEW.quantity * NEW.unit_cost;
+  NEW.status = compute_inventory_status(NEW.quantity, NEW.reserved_quantity);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
@@ -154,6 +255,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
+-- Generate next project closeout batch ID (PCB-1001, PCB-1002, ...)
+CREATE OR REPLACE FUNCTION generate_project_closeout_batch_id()
+RETURNS TEXT AS $$
+DECLARE next_num INTEGER;
+BEGIN
+  SELECT COALESCE(MAX(CAST(SPLIT_PART(id, '-', 2) AS INTEGER)), 1000) + 1
+  INTO next_num
+  FROM project_closeout_batches
+  WHERE id LIKE 'PCB-%';
+  RETURN 'PCB-' || next_num;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
 
 -- --------------------------------------------------------
 -- ATOMIC INVENTORY ADJUSTMENT (RPC)
@@ -171,13 +285,14 @@ CREATE OR REPLACE FUNCTION create_inventory_adjustment(
 RETURNS JSON AS $$
 DECLARE
   v_prev_qty   INTEGER;
+  v_reserved_qty INTEGER;
   v_new_qty    INTEGER;
   v_change     INTEGER;
   v_new_status TEXT;
   v_adj_id     TEXT;
 BEGIN
   -- Get current quantity
-  SELECT quantity INTO v_prev_qty
+  SELECT quantity, reserved_quantity INTO v_prev_qty, v_reserved_qty
   FROM inventory_items
   WHERE id = p_inventory_item_id
   FOR UPDATE;  -- lock the row
@@ -204,12 +319,14 @@ BEGIN
       RAISE EXCEPTION 'Invalid adjustment type: %', p_adjustment_type;
   END CASE;
 
-  -- Determine new status based on quantity
-  v_new_status := CASE
-    WHEN v_new_qty <= 0  THEN 'Out of Stock'
-    WHEN v_new_qty <= 10 THEN 'Low Stock'
-    ELSE 'Available'
-  END;
+  IF v_new_qty < v_reserved_qty THEN
+    RAISE EXCEPTION 'Cannot reduce inventory item % below its reserved quantity of %.',
+      p_inventory_item_id,
+      v_reserved_qty;
+  END IF;
+
+  -- Determine new status based on available quantity
+  v_new_status := compute_inventory_status(v_new_qty, v_reserved_qty);
 
   -- Update inventory
   UPDATE inventory_items

@@ -307,8 +307,67 @@
   gap: 0.75rem;
 }
 
-.manage-location-details {
-  margin-top: 0.75rem;
+.manage-location-inline-summary {
+  margin-top: 0.25rem;
+}
+
+.manage-location-card-header {
+  flex: 1;
+  min-width: 0;
+}
+
+.manage-location-card-top {
+  margin: -1rem -1rem 0;
+  padding: 0.7rem 1rem 0.55rem;
+  background: #2f3744;
+  border-bottom: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+}
+
+.manage-location-card-top .inventory-item-title,
+.manage-location-card-top .inventory-item-subtext,
+.manage-location-card-top .detail-label,
+.manage-location-card-top .detail-value {
+  color: #f8fbff;
+}
+
+.manage-location-card .inventory-item-title {
+  font-weight: 700;
+}
+
+.manage-location-form-card .manage-location-card-top {
+  padding: 0.5rem 1rem 0.4rem;
+}
+
+.manage-location-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  width: 100%;
+}
+
+.manage-location-code-row .inventory-item-subtext {
+  margin: 0;
+}
+
+.manage-location-code-row .inventory-item-subtext:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.manage-location-type-text {
+  display: block;
+  text-align: right;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.manage-location-inline-value {
+  display: inline;
+  margin: 0;
+  font-weight: 500;
 }
 
 .manage-location-content {
@@ -391,7 +450,13 @@
   display: flex;
   justify-content: center;
   padding: 0.75rem 0 1rem;
-  background: linear-gradient(to top, var(--page-bg, #f5f7fb) 65%, transparent);
+  background: linear-gradient(
+    to top,
+    transparent 0%,
+    rgba(109, 114, 120, 0.88) 22%,
+    rgba(109, 114, 120, 0.88) 78%,
+    transparent 100%
+  );
 }
 
 .manage-location-sticky-actions .primary-button {
@@ -399,15 +464,273 @@
 }
 
 .manage-location-projects {
-  margin-top: 0.85rem;
+  margin-top: 0.45rem;
 }
 
 .manage-location-project-list {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-top: 0.35rem;
+  gap: 0.0625rem;
+  margin-top: 0.1rem;
   padding-left: 1rem;
+}
+
+.manage-location-project-list .detail-value {
+  margin: 0;
+}
+
+.manage-project-card {
+  width: 100%;
+}
+
+.manage-project-card-top {
+  background: #2f3744;
+}
+
+.manage-user-card-top {
+  background: #2f3744;
+}
+
+.manage-user-card-top .inventory-item-title,
+.manage-user-card-top .inventory-item-subtext,
+.manage-user-card-top .detail-label,
+.manage-user-card-top .detail-value {
+  color: #f8fbff;
+}
+
+.manage-project-actions-row .manage-action-button {
+  line-height: 1.1;
+}
+
+.manage-project-actions-row .manage-action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.manage-project-assignment-group {
+  gap: 0.45rem;
+}
+
+.manage-project-assignment-helper {
+  font-size: 0.84rem;
+  color: var(--nav-bg);
+}
+
+.manage-project-assignment-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.manage-project-assignment-summary {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--input-bg);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.manage-project-assignment-summary-text {
+  min-width: 0;
+  flex: 1;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-project-assignment-summary-meta {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--nav-bg);
+}
+
+.manage-project-assignment-listbox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 0.15rem;
+  padding-right: 0.1rem;
+}
+
+.manage-project-assignment-pill {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--content-bg) 12%);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.manage-project-assignment-pill:hover {
+  border-color: var(--nav-bg);
+  background: color-mix(in srgb, var(--surface) 78%, var(--nav-bg) 22%);
+}
+
+.manage-project-assignment-pill.selected {
+  border-color: var(--nav-bg);
+  background: color-mix(in srgb, var(--nav-bg) 22%, var(--surface) 78%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--nav-bg) 58%, white 42%),
+    0 0 0 1px color-mix(in srgb, var(--nav-bg) 24%, transparent 76%);
+}
+
+.manage-project-assignment-pill input {
+  margin-top: 0.2rem;
+}
+
+.manage-project-assignment-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.manage-project-assignment-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.manage-project-assignment-meta {
+  font-size: 0.84rem;
+  color: var(--nav-bg);
+  overflow-wrap: anywhere;
+}
+
+.manage-project-assignment-pill.selected .manage-project-assignment-meta,
+.manage-project-assignment-pill.selected .manage-project-assignment-name {
+  color: var(--text);
+}
+
+.manage-project-assignment-empty {
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  font-size: 0.9rem;
+  color: var(--nav-bg);
+}
+
+.manage-user-actions-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.manage-user-actions-row .manage-action-reactivate {
+  background: #2f6496;
+  color: #f5f7fb;
+  box-shadow:
+    inset 0 0 0 1px #4f82b3,
+    0 2px 4px rgba(0, 0, 0, 0.85);
+}
+
+.manage-user-actions-row .manage-action-reactivate:hover {
+  background: #3c78b2;
+}
+
+.manage-user-role-row {
+  margin-top: 0.75rem;
+}
+
+.manage-user-form-error {
+  grid-column: 1 / -1;
+}
+
+.manage-user-form-actions {
+  grid-column: 1 / -1;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+    0 2px 4px rgba(0, 0, 0, 0.22);
+}
+
+.role-badge-admin {
+  background: #9d2f2f;
+  color: #fff5f5;
+}
+
+.role-badge-project-manager {
+  background: #2f6496;
+  color: #f5f9ff;
+}
+
+.role-badge-warehouse-manager {
+  background: #446957;
+  color: #f4fff8;
+}
+
+.role-badge-logistics-associate {
+  background: #7a6a34;
+  color: #fff9e8;
+}
+
+.role-badge-logistics-foreman {
+  background: #5b4b7c;
+  color: #f8f2ff;
+}
+
+.manage-project-modal-card {
+  width: min(680px, calc(100vw - 2rem));
+}
+
+.manage-project-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.manage-project-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.manage-project-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.manage-project-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.manage-project-summary-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-color);
 }
 
 .serial-entries-list {
@@ -1442,6 +1765,16 @@
   font-weight: 500;
 }
 
+.available-quantity-value {
+  font-weight: 800;
+  color: #163d66;
+}
+
+.reserved-quantity-value {
+  color: #8f4f17;
+  font-weight: 600;
+}
+
 .detail-panel-grid {
   margin-top: 1rem;
 }
@@ -1753,6 +2086,17 @@
   gap: 0.1rem;
 }
 
+.sticky-page-header.shipment-header {
+  background:
+    radial-gradient(
+      circle at center,
+      #dde1e6 0%,
+      #dde1e6 50%,
+      #d1d8e1 76%,
+      #bcccdc 100%
+    );
+}
+
 .shipment-header-top-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -1947,7 +2291,21 @@
 :root[data-theme="dark"] .manifest-empty-state,
 :root[data-theme="dark"] .home-tile,
 :root[data-theme="dark"] .home-subtile {
-  color: #1f2937;
+  color: #e7edf5;
+  background:
+    radial-gradient(
+      circle at center,
+      #033869 0%,
+      #033869 58%,
+      #1a4d7b 82%,
+      #3f78ad 100%
+    );
+  border-color: rgba(179, 63, 63, 0.62);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.28),
+    0 0 14px rgba(190, 68, 68, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02),
+    inset 0 0 16px rgba(179, 63, 63, 0.1);
 }
 
 :root[data-theme="dark"] .page-subtitle,
@@ -1964,30 +2322,30 @@
 :root[data-theme="dark"] .home-subtext,
 :root[data-theme="dark"] .manifest-empty-state,
 :root[data-theme="dark"] .summary-label {
-  color: #374151;
+  color: rgba(233, 240, 248, 0.82);
 }
 
 :root[data-theme="dark"] .home-tile-title,
 :root[data-theme="dark"] .home-group-title {
-  color: #111827;
+  color: #f4f8fc;
 }
 
 :root[data-theme="dark"] .home-tile-description {
-  color: #374151;
+  color: rgba(241, 246, 251, 0.88);
 }
 
 :root[data-theme="dark"] .home-tile-arrow {
-  color: #6b7280;
+  color: rgba(241, 246, 251, 0.76);
   opacity: 0.6;
 }
 
 :root[data-theme="dark"] .home-group-chevron {
-  color: #374151;
+  color: rgba(233, 240, 248, 0.82);
   opacity: 0.7;
 }
 
 :root[data-theme="dark"] .home-group-chevron.open {
-  color: #111827;
+  color: #f4f8fc;
   opacity: 1;
 }
 
@@ -1998,13 +2356,182 @@
 :root[data-theme="dark"] .filter-row select,
 :root[data-theme="dark"] .inventory-filters-embedded select,
 :root[data-theme="dark"] .inventory-filters-embedded .inventory-search {
-  color: #1f2937;
+  color: #eef4fb;
+  background: rgba(8, 14, 22, 0.42);
+  border-color: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 6px 16px rgba(0, 0, 0, 0.16);
 }
 
 :root[data-theme="dark"] .form-input::placeholder,
 :root[data-theme="dark"] .form-textarea::placeholder,
 :root[data-theme="dark"] .inventory-search::placeholder {
-  color: #6b7280;
+  color: rgba(224, 232, 241, 0.52);
+}
+
+:root[data-theme="dark"] .page-section,
+:root[data-theme="dark"] .inventory-card,
+:root[data-theme="dark"] .received-item-card,
+:root[data-theme="dark"] .inventory-detail-panel,
+:root[data-theme="dark"] .inventory-modal-card,
+:root[data-theme="dark"] .scan-preview-card,
+:root[data-theme="dark"] .home-card,
+:root[data-theme="dark"] .summary-card,
+:root[data-theme="dark"] .home-tile,
+:root[data-theme="dark"] .home-subtile {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="dark"] .detail-label,
+:root[data-theme="dark"] .form-label,
+:root[data-theme="dark"] .inventory-item-subtext,
+:root[data-theme="dark"] .manage-location-inline-label,
+:root[data-theme="dark"] .results-count {
+  color: rgba(233, 240, 248, 0.8);
+}
+
+:root[data-theme="dark"] .section-title,
+:root[data-theme="dark"] .received-item-title,
+:root[data-theme="dark"] .inventory-item-title,
+:root[data-theme="dark"] .page-title {
+  color: #f4f8fc;
+}
+
+:root[data-theme="dark"] .text-button,
+:root[data-theme="dark"] .photo-section-toggle-meta,
+:root[data-theme="dark"] .manage-location-meta,
+:root[data-theme="dark"] .manage-location-code-row .inventory-item-subtext {
+  color: #f1f6fb;
+}
+
+:root[data-theme="dark"] .sticky-page-header,
+:root[data-theme="dark"] .page-section.inventory-header,
+:root[data-theme="dark"] .page-section.manifest-header,
+:root[data-theme="dark"] .page-section.request-header,
+:root[data-theme="dark"] .page-section.receive-header {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+}
+
+:root[data-theme="dark"] .sticky-page-header.shipment-header {
+  background:
+    radial-gradient(
+      circle at center,
+      #050608 0%,
+      #050608 58%,
+      #10151c 82%,
+      #2a2f35 100%
+    );
+}
+
+:root[data-theme="dark"] .manage-location-sticky-actions {
+  background: linear-gradient(
+    to top,
+    transparent 0%,
+    rgba(5, 6, 8, 0.9) 22%,
+    rgba(5, 6, 8, 0.9) 78%,
+    transparent 100%
+  );
+}
+
+:root[data-theme="dark"] .manage-location-card-top,
+:root[data-theme="dark"] .manage-project-card-top,
+:root[data-theme="dark"] .manage-user-card-top {
+  background: transparent;
+  border-bottom-color: rgba(179, 63, 63, 0.4);
+}
+
+:root[data-theme="dark"] .detail-panel-header,
+:root[data-theme="dark"] .inventory-card-top,
+:root[data-theme="dark"] .inventory-header-bar,
+:root[data-theme="dark"] .receive-header-bar,
+:root[data-theme="dark"] .request-header-bar,
+:root[data-theme="dark"] .manifest-header-bar,
+:root[data-theme="dark"] .pending-requests-header-bar,
+:root[data-theme="dark"] .shipment-header,
+:root[data-theme="dark"] .shipment-header-top-row,
+:root[data-theme="dark"] .account-header,
+:root[data-theme="dark"] .home-card-header,
+:root[data-theme="dark"] .home-tile-header {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .manage-location-card-top .inventory-item-title,
+:root[data-theme="dark"] .manage-location-card-top .inventory-item-subtext,
+:root[data-theme="dark"] .manage-location-card-top .detail-label,
+:root[data-theme="dark"] .manage-location-card-top .detail-value,
+:root[data-theme="dark"] .manage-project-card-top .inventory-item-title,
+:root[data-theme="dark"] .manage-project-card-top .inventory-item-subtext,
+:root[data-theme="dark"] .manage-project-card-top .detail-label,
+:root[data-theme="dark"] .manage-project-card-top .detail-value,
+:root[data-theme="dark"] .manage-user-card-top .inventory-item-title,
+:root[data-theme="dark"] .manage-user-card-top .inventory-item-subtext,
+:root[data-theme="dark"] .manage-user-card-top .detail-label,
+:root[data-theme="dark"] .manage-user-card-top .detail-value {
+  color: #f8fbff;
+}
+
+:root[data-theme="dark"] .reserved-quantity-value {
+  color: #ffc577;
+}
+
+:root[data-theme="dark"] .available-quantity-value {
+  color: #f8fbff;
+}
+
+:root[data-theme="dark"] .secondary-button {
+  background: rgba(10, 16, 24, 0.34);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #eaf2fa;
+}
+
+:root[data-theme="dark"] .page-section,
+:root[data-theme="dark"] .inventory-card,
+:root[data-theme="dark"] .received-item-card,
+:root[data-theme="dark"] .inventory-detail-panel,
+:root[data-theme="dark"] .inventory-modal-card,
+:root[data-theme="dark"] .scan-preview-card,
+:root[data-theme="dark"] .home-card,
+:root[data-theme="dark"] .summary-card,
+:root[data-theme="dark"] .home-tile,
+:root[data-theme="dark"] .home-subtile,
+:root[data-theme="dark"] .serial-entry-card {
+  border-color: rgba(190, 68, 68, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(190, 68, 68, 0.35),
+    0 0 16px rgba(190, 68, 68, 0.3),
+    0 18px 44px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02),
+    inset 0 0 14px rgba(179, 63, 63, 0.08);
+}
+
+:root[data-theme="dark"] .manifest-empty-state,
+:root[data-theme="dark"] .surface-muted,
+:root[data-theme="dark"] .inventory-detail-section,
+:root[data-theme="dark"] .photo-preview-grid .scan-preview-card {
+  background:
+    radial-gradient(
+      circle at center,
+      #0a4277 0%,
+      #0a4277 58%,
+      #225783 82%,
+      #3a6f9f 100%
+    );
+  border-color: rgba(190, 68, 68, 0.82);
+  box-shadow:
+    0 0 0 1px rgba(190, 68, 68, 0.28),
+    0 0 12px rgba(190, 68, 68, 0.24),
+    inset 0 0 12px rgba(179, 63, 63, 0.08);
+}
+
+:root[data-theme="dark"] .content-window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.02), transparent 22%);
 }
 
 /* =========================

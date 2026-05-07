@@ -7,6 +7,7 @@ import {
     subscribeToInventory,
     createInventoryAdjustment,
     canAdjustInventoryItemForPermissions,
+    getAvailableInventoryQuantity,
 } from "../services/inventoryService"
 import { useAsyncData } from "../hooks/useAsyncData"
 import FilterHeader from "./FilterHeader"
@@ -28,6 +29,10 @@ function getStatusClass(status) {
     }
 }
 
+function getReservedInventoryQuantity(item) {
+    return Number(item?.reservedQuantity ?? item?.reserved_quantity ?? 0) || 0
+}
+
 function InventoryDetailContent({
     item,
     onClose,
@@ -37,6 +42,9 @@ function InventoryDetailContent({
     onAdjustInventory,
 }) {
     if (!item) return null
+
+    const availableQuantity = getAvailableInventoryQuantity(item)
+    const reservedQuantity = getReservedInventoryQuantity(item)
 
     return (
         <>
@@ -55,7 +63,19 @@ function InventoryDetailContent({
 
             <div className="inventory-card-details detail-panel-grid">
                 <div>
-                    <span className="detail-label">Quantity: </span>
+                    <span className="detail-label">Available: </span>
+                    <span className="detail-value available-quantity-value">{availableQuantity} {item.unit}</span>
+                </div>
+
+                {reservedQuantity > 0 && (
+                    <div>
+                        <span className="detail-label">Reserved: </span>
+                        <span className="detail-value reserved-quantity-value">{reservedQuantity} {item.unit}</span>
+                    </div>
+                )}
+
+                <div>
+                    <span className="detail-label">On Hand: </span>
                     <span className="detail-value">{item.quantity} {item.unit}</span>
                 </div>
 
@@ -518,7 +538,13 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
                     <div className="inventory-results">
                         <div className="inventory-card-list">
                             {filteredItems.map((item) => (
-                                <div className="inventory-card" key={item.id}>
+                            <div className="inventory-card" key={item.id}>
+                                {(() => {
+                                    const availableQuantity = getAvailableInventoryQuantity(item)
+                                    const reservedQuantity = getReservedInventoryQuantity(item)
+
+                                    return (
+                                        <>
                                     <div className="inventory-card-top">
                                         <div>
                                             <h3 className="inventory-item-title">{item.name}</h3>
@@ -530,7 +556,19 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
 
                                     <div className="inventory-card-details">
                                         <div>
-                                            <span className="detail-label">Quantity: </span>
+                                            <span className="detail-label">Available: </span>
+                                            <span className="detail-value available-quantity-value">{availableQuantity} {item.unit}</span>
+                                        </div>
+
+                                        {reservedQuantity > 0 && (
+                                            <div>
+                                                <span className="detail-label">Reserved: </span>
+                                                <span className="detail-value reserved-quantity-value">{reservedQuantity} {item.unit}</span>
+                                            </div>
+                                        )}
+
+                                        <div>
+                                            <span className="detail-label">On Hand: </span>
                                             <span className="detail-value">{item.quantity} {item.unit}</span>
                                         </div>
 
@@ -563,6 +601,9 @@ function InventoryPage({ permissions = [], currentUser, onBack }) {
                                             View Details
                                         </button>
                                     </div>
+                                        </>
+                                    )
+                                })()}
                                 </div>
                             ))}
                         </div>
