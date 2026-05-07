@@ -160,6 +160,14 @@ function buildEventsFromTransfers(transfers) {
 
     if (transfer.receivedAt) {
       const statusValue = transfer.statusValue || transfer.status
+      const variances = (transfer.items || [])
+        .filter((item) => item.varianceReason && item.varianceReason.trim())
+        .map((item) => `${item.sku || item.name || "item"}: ${item.varianceReason}`)
+      const baseNotes =
+        statusValue === "exception"
+          ? transfer.exceptionNotes || "Partial receipt"
+          : transfer.transferNotes || ""
+      const notes = [baseNotes, ...variances].filter(Boolean).join(" | ")
       events.push({
         id: `tx-recv-${transfer.id}`,
         at: transfer.receivedAt,
@@ -170,10 +178,8 @@ function buildEventsFromTransfers(transfers) {
         summary: [transfer.sourceLocation, transfer.destinationLocation]
           .filter(Boolean)
           .join(" → "),
-        notes:
-          statusValue === "exception"
-            ? transfer.exceptionNotes || "Partial receipt"
-            : transfer.transferNotes || "",
+        notes,
+        variances,
         statusValue,
         related: { transfer },
       })
