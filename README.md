@@ -1,6 +1,8 @@
 # Team 1 - MEC2 Inventory Management System
 
-Inventory management web app for MEC2, built with React + Supabase.
+A mobile-first web app for logging deliveries, tracking material across warehouses and job sites, and handling field requests. This inventory management web app was designed for MEC2, built with React + Supabase.
+
+The purpose of this project is to support the company's operations by providing logistics crews, warehouse staff, and project managers with a centralized mobile application that improves material tracking and visibility from delivery all the way through installation.
 
 ## Quick Start
 
@@ -57,17 +59,16 @@ By default the app runs with **mock data** — no backend setup needed.
 - Two-layer security: UI gates + database-level RLS and triggers
 
 ### Implemented pages
-- **Login** — username/password authentication
-- **Home** — permission-gated action tiles per role
-- **Account** — profile info, change password, log out
-- **Inventory** — search, filters (project/category/status), summary cards, item detail panel with permission-gated cost/actions, inventory adjustment (increase/decrease/set)
-- **Receive Inventory** — delivery and item entry forms, validation with first-error scroll, add/remove item rows, document upload/scan preview UI
-- **Request Material** — request metadata form, multi-item request builder, warehouse-based item selection, quantity validation against available inventory
-- **Pending Requests** — review and approve/reject requests with notes
-- **Manifest Inventory** — create outbound/return/warehouse transfer manifests from approved requests or manually, confirm quantities against available stock
-- **Transfer Inventory** — ship and receive transfers, partial receipt with variance tracking and exception notes
-- **Shipment Tracking** — full pipeline view with status filters, search, and detail panel
-
+- **Login** — authentication for the system using username/password
+- **Home** — Displays permission-gated action tiles per role, allowing for access to all the pages
+- **Account** — Displays profile info, change password, log out
+- **View Inventory** — Displays inventory status at locations. Includes search, filters (project/category/status), summary cards, item detail panel with permission-gated cost/actions, inventory adjustment (increase/decrease/set)
+- **Receive Inventory** — Allows for logging delivery and item entry forms. Includes validation with first-error scroll, add/remove item rows, document upload/scan preview UI
+- **Request Material** — Allows to request new material . Uses a metadata form, multi-item request builder, warehouse-based item selection, quantity validation against available inventory
+- **Pending Requests** — Review and approve/reject requests with notes
+- **Manifest Inventory** — Create outbound/return/warehouse transfer manifests from approved requests or manually, confirm quantities against available stock
+- **Transfer Inventory** — Ship and receive transfers, partial receipt with variance tracking and exception notes
+- **Shipment Tracking** — Displays all shipments being tracked by the system
 ### Backend integration
 - All services toggle between mock data and live Supabase via `VITE_USE_MOCK` flag
 - Database triggers enforce workflow state machine (request → manifest → transfer)
@@ -102,3 +103,13 @@ docs/
 ## Service Layer
 
 Frontend devs: see `frontend/src/services/README.md` for the full API reference. All service functions are async and return camelCase objects. You never need to import or know about Supabase.
+
+## Known Issues
+
+Delivery and image capture still needs to be implemented
+Serial Number Capture and Entry still needs to be implemented
+
+
+## Credits
+
+This system was designed and implemented by David Olatunji, Edmond Ndanji, Jonathan Smith, Oluwatomisin Sapara-Williams, Thomas Kratz
