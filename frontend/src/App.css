@@ -104,13 +104,26 @@
 
 .login-page,
 .home-page,
-.account-page,
-.change-password-page,
 .generic-page {
   min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.account-page,
+.change-password-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.account-page > .account-card,
+.change-password-page > .change-password-card {
+  margin: auto 0;
 }
 
 .inventory-page,
@@ -514,6 +527,13 @@
   border: 1px solid var(--read-only-bg);
   color: var(--text);
   cursor: default;
+}
+
+.variance-input {
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.5);
+  color: #b45309;
+  font-weight: 600;
 }
 
 .input-error {
@@ -1999,6 +2019,12 @@
 :root[data-theme="dark"] .inventory-filters-embedded select,
 :root[data-theme="dark"] .inventory-filters-embedded .inventory-search {
   color: #1f2937;
+}
+
+:root[data-theme="dark"] .variance-input {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.55);
+  color: #fbbf24;
 }
 
 :root[data-theme="dark"] .form-input::placeholder,
