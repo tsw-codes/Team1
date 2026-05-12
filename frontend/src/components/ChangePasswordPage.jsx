@@ -27,7 +27,7 @@ function ChangePasswordPage({ form, error, success, onChange, onSubmit, onBack }
     return (
         <div className="change-password-page">
             <div className="change-password-card">
-                <h1 className="account-header">Change Password</h1>
+                <h1 className="account-header sticky-page-header">Change Password</h1>
 
                 <form className="change-password-form" onSubmit={onSubmit}>
                     <div className="form-group">

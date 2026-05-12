@@ -30,7 +30,7 @@ function AccountPage({
         <>
             <div className="account-page">
                 <div className="account-card">
-                    <div className="account-header-row">
+                    <div className="account-header-row sticky-page-header">
                         <button className="text-button" onClick={onBack}>
                             ← Home
                         </button>

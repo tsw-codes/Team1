@@ -334,15 +334,57 @@ function ShipmentTrackingDetailContent({
                                 </label>
 
                                 {record.transfer ? (
-                                    <label className="form-group">
-                                        <span className="form-label">Current Quantity</span>
-                                        <input
-                                            className="form-input read-only-input"
-                                            type="text"
-                                            value={item.effectiveQuantity ?? ""}
-                                            readOnly
-                                        />
-                                    </label>
+                                    <>
+                                        <label className="form-group">
+                                            <span className="form-label">Manifest Qty</span>
+                                            <input
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                value={item.manifestQuantity ?? "-"}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        <label className="form-group">
+                                            <span className="form-label">Shipped Qty</span>
+                                            <input
+                                                className="form-input read-only-input"
+                                                type="text"
+                                                value={item.shippedQuantity ?? "-"}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        <label className="form-group">
+                                            <span className="form-label">Received Qty</span>
+                                            <input
+                                                className={`form-input read-only-input${
+                                                    item.shippedQuantity !== null
+                                                    && item.shippedQuantity !== undefined
+                                                    && item.receivedQuantity !== null
+                                                    && item.receivedQuantity !== undefined
+                                                    && Number(item.receivedQuantity) !== Number(item.shippedQuantity)
+                                                        ? " variance-input"
+                                                        : ""
+                                                }`}
+                                                type="text"
+                                                value={item.receivedQuantity ?? "-"}
+                                                readOnly
+                                            />
+                                        </label>
+
+                                        {item.varianceReason ? (
+                                            <label className="form-group receive-form-span-2">
+                                                <span className="form-label">Variance Reason</span>
+                                                <input
+                                                    className="form-input read-only-input variance-input"
+                                                    type="text"
+                                                    value={item.varianceReason}
+                                                    readOnly
+                                                />
+                                            </label>
+                                        ) : null}
+                                    </>
                                 ) : record.manifest ? (
                                     <label className="form-group">
                                         <span className="form-label">Manifest Quantity</span>
